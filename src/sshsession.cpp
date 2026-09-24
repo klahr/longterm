@@ -11,6 +11,11 @@
 
 #include <libssh/libssh.h>
 
+#include <cerrno>
+#include <fcntl.h>
+#include <poll.h>
+#include <unistd.h>
+
 #include "secretvault.h"
 #include "terminal.h"
 
@@ -37,23 +42,44 @@ public:
         , m_rows(rows)
         , m_resizePending(false)
     {
+        // Lets other threads wake the worker out of poll()
+        if (pipe2(m_wakePipe, O_CLOEXEC | O_NONBLOCK) != 0)
+            m_wakePipe[0] = m_wakePipe[1] = -1;
+    }
+
+    ~SshWorker()
+    {
+        if (m_wakePipe[0] >= 0) {
+            close(m_wakePipe[0]);
+            close(m_wakePipe[1]);
+        }
     }
 
     void write(const QByteArray &data)
     {
-        QMutexLocker locker(&m_writeMutex);
-        m_pendingWrite.append(data);
+        {
+            QMutexLocker locker(&m_writeMutex);
+            m_pendingWrite.append(data);
+        }
+        wake();
     }
 
     void resize(int columns, int rows)
     {
-        QMutexLocker locker(&m_writeMutex);
-        m_columns = columns;
-        m_rows = rows;
-        m_resizePending = true;
+        {
+            QMutexLocker locker(&m_writeMutex);
+            m_columns = columns;
+            m_rows = rows;
+            m_resizePending = true;
+        }
+        wake();
     }
 
-    void stop() { m_stop.storeRelease(1); }
+    void stop()
+    {
+        m_stop.storeRelease(1);
+        wake();
+    }
 
 signals:
     void connected();
@@ -61,6 +87,7 @@ signals:
     void info(const QString &message);
     void failed(const QString &message);
     void shellExited();
+    void hostKeyChanged(const QString &fingerprint);
 
 protected:
     void run() override
@@ -185,7 +212,8 @@ private:
             return true;
         case SSH_KNOWN_HOSTS_CHANGED:
         case SSH_KNOWN_HOSTS_OTHER:
-            emit failed(tr("Host key has changed, possible attack. Key %1").arg(fingerprint));
+            emit hostKeyChanged(fingerprint);
+            emit failed(tr("Host key has changed"));
             return false;
         case SSH_KNOWN_HOSTS_ERROR:
         default:
@@ -193,13 +221,52 @@ private:
         }
     }
 
-    void readLoop(ssh_session session, ssh_channel channel)
+    void wake()
+    {
+        const char byte = 0;
+        if (m_wakePipe[1] >= 0 && ::write(m_wakePipe[1], &byte, 1) < 0) {
+            // A full pipe already guarantees a wakeup
+        }
+    }
+
+    void drainWakePipe()
+    {
+        char bytes[64];
+        while (m_wakePipe[0] >= 0 && ::read(m_wakePipe[0], bytes, sizeof(bytes)) > 0) {
+        }
+    }
+
+    // Returns false on a read error, eof is set when the server closed the channel
+    bool readAvailable(ssh_session session, ssh_channel channel, bool *eof)
     {
         char buffer[4096];
+        for (int stream = 0; stream <= 1; ++stream) {
+            for (;;) {
+                const int n = ssh_channel_read_nonblocking(channel, buffer, sizeof(buffer), stream);
+                if (n == SSH_EOF) {
+                    *eof = true;
+                    break;
+                }
+                if (n == SSH_ERROR)
+                    return fail(session, tr("Read failed"));
+                if (n == 0)
+                    break;
+                emit dataReceived(QByteArray(buffer, n));
+            }
+        }
+        return true;
+    }
+
+    // Sleeps in poll() until the server sends something, another thread
+    // wakes it, or a keepalive is due, so an idle connection costs no wakeups
+    void readLoop(ssh_session session, ssh_channel channel)
+    {
+        const socket_t fd = ssh_get_fd(session);
         QElapsedTimer idle;
         idle.start();
-        while (!m_stop.loadAcquire()
-               && ssh_channel_is_open(channel) && !ssh_channel_is_eof(channel)) {
+        while (!m_stop.loadAcquire()) {
+            drainWakePipe();
+
             QByteArray pending;
             bool resizePending;
             int columns;
@@ -221,6 +288,13 @@ private:
                 }
                 idle.restart();
             }
+
+            bool eof = false;
+            if (!readAvailable(session, channel, &eof))
+                return;
+            if (eof || !ssh_channel_is_open(channel) || ssh_channel_is_eof(channel))
+                break;
+
             if (idle.hasExpired(KeepAliveIntervalMs)) {
                 if (ssh_send_ignore(session, "keepalive") != SSH_OK) {
                     fail(session, tr("Connection lost"));
@@ -229,15 +303,19 @@ private:
                 idle.restart();
             }
 
-            int n = ssh_channel_read_timeout(channel, buffer, sizeof(buffer), 0, 50);
-            if (n == SSH_ERROR) {
-                fail(session, tr("Read failed"));
+            struct pollfd fds[2];
+            fds[0].fd = fd;
+            fds[0].events = POLLIN;
+            fds[1].fd = m_wakePipe[0];
+            fds[1].events = POLLIN;
+            const int timeout = int(qMax<qint64>(0, KeepAliveIntervalMs - idle.elapsed()));
+            const int ready = poll(fds, m_wakePipe[0] >= 0 ? 2 : 1, timeout);
+            if (ready < 0 && errno != EINTR) {
+                emit failed(tr("Connection lost"));
                 return;
             }
-            if (n > 0) {
+            if (ready > 0 && (fds[0].revents & POLLIN))
                 idle.restart();
-                emit dataReceived(QByteArray(buffer, n));
-            }
         }
         // Failures return above, so the server ended the shell unless we were stopped
         if (!m_stop.loadAcquire())
@@ -262,6 +340,7 @@ private:
     int m_columns;
     int m_rows;
     bool m_resizePending;
+    int m_wakePipe[2];
 };
 
 SshSession::SshSession(const QString &name, const QString &host, int port, const QString &user,
@@ -275,6 +354,9 @@ SshSession::SshSession(const QString &name, const QString &host, int port, const
     , m_worker(nullptr)
     , m_terminal(new Terminal(this))
     , m_secretFetchPending(false)
+    , m_hostKeyMismatch(false)
+    , m_authVault(nullptr)
+    , m_authKind(Password)
 {
     connect(m_terminal, &Terminal::outputReady, this, &SshSession::onTerminalOutput);
     connect(m_terminal, &Terminal::sizeChanged, this, &SshSession::onTerminalSizeChanged);
@@ -289,7 +371,44 @@ void SshSession::connectToHost(const QString &password)
 {
     if (m_state != Disconnected)
         return;
+    m_authPassword = password;
+    m_authVault = nullptr;
+    m_authSecretId.clear();
     startWorker(password, QByteArray());
+}
+
+void SshSession::reconnect()
+{
+    if (m_state != Disconnected)
+        return;
+    m_terminal->write(QByteArrayLiteral("\r\n"));
+    if (m_authVault)
+        connectWithSecret(m_authVault, m_authSecretId, m_authKind);
+    else
+        connectToHost(m_authPassword);
+}
+
+void SshSession::trustNewHostKey()
+{
+    if (!m_hostKeyMismatch || m_state != Disconnected)
+        return;
+
+    // libssh writes plain entries, "host" for port 22 and "[host]:port" otherwise
+    const QString pattern = m_port == 22 ? m_host : QStringLiteral("[%1]:%2").arg(m_host).arg(m_port);
+    QFile file(knownHostsPath());
+    if (file.open(QIODevice::ReadOnly)) {
+        QByteArray kept;
+        while (!file.atEnd()) {
+            const QByteArray line = file.readLine();
+            const QList<QByteArray> hosts = line.trimmed().split(' ').value(0).split(',');
+            if (!hosts.contains(pattern.toUtf8()))
+                kept.append(line);
+        }
+        file.close();
+        if (file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+            file.write(kept);
+    }
+    reconnect();
 }
 
 void SshSession::connectWithSecret(SecretVault *vault, const QString &secretId, SecretKind kind)
@@ -297,6 +416,9 @@ void SshSession::connectWithSecret(SecretVault *vault, const QString &secretId, 
     if (m_state != Disconnected || !vault)
         return;
 
+    m_authVault = vault;
+    m_authSecretId = secretId;
+    m_authKind = kind;
     m_errorString.clear();
     emit errorStringChanged();
     m_secretFetchPending = true;
@@ -319,22 +441,30 @@ void SshSession::connectWithSecret(SecretVault *vault, const QString &secretId, 
     });
 }
 
-void SshSession::startWorker(const QString &password, const QByteArray &privateKey)
+QString SshSession::knownHostsPath() const
 {
     const QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     QDir().mkpath(dataDir);
+    return dataDir + QStringLiteral("/known_hosts");
+}
 
+void SshSession::startWorker(const QString &password, const QByteArray &privateKey)
+{
     m_errorString.clear();
     emit errorStringChanged();
+    if (m_hostKeyMismatch) {
+        m_hostKeyMismatch = false;
+        emit hostKeyMismatchChanged();
+    }
 
-    m_worker = new SshWorker(m_host, m_port, m_user, password, privateKey,
-                             dataDir + QStringLiteral("/known_hosts"),
+    m_worker = new SshWorker(m_host, m_port, m_user, password, privateKey, knownHostsPath(),
                              m_terminal->columns(), m_terminal->rows());
     connect(m_worker, &SshWorker::connected, this, &SshSession::onWorkerConnected);
     connect(m_worker, &SshWorker::dataReceived, this, &SshSession::onWorkerData);
     connect(m_worker, &SshWorker::info, this, &SshSession::onWorkerInfo);
     connect(m_worker, &SshWorker::failed, this, &SshSession::onWorkerFailed);
     connect(m_worker, &SshWorker::shellExited, this, &SshSession::shellExited);
+    connect(m_worker, &SshWorker::hostKeyChanged, this, &SshSession::onHostKeyChanged);
     connect(m_worker, &QThread::finished, this, &SshSession::onWorkerFinished);
     setState(Connecting);
     m_worker->start();
@@ -369,6 +499,13 @@ void SshSession::onWorkerFailed(const QString &message)
 {
     m_errorString = message;
     emit errorStringChanged();
+}
+
+void SshSession::onHostKeyChanged(const QString &fingerprint)
+{
+    m_serverFingerprint = fingerprint;
+    m_hostKeyMismatch = true;
+    emit hostKeyMismatchChanged();
 }
 
 void SshSession::onWorkerFinished()

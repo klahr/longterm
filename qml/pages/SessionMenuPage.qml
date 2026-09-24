@@ -59,6 +59,21 @@ Page {
             }
 
             BackgroundItem {
+                visible: session.state === SshSession.Disconnected && !session.hostKeyMismatch
+                onClicked: {
+                    page.session.reconnect()
+                    pageStack.pop()
+                }
+
+                Label {
+                    x: Theme.horizontalPageMargin
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Reconnect")
+                    color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                }
+            }
+
+            BackgroundItem {
                 onClicked: {
                     sessionManager.closeSession(page.session)
                     pageStack.pop(pageStack.previousPage(page.sessionPage))

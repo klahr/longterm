@@ -70,11 +70,19 @@ Page {
                     menu: Component {
                         ContextMenu {
                             MenuItem {
+                                visible: sessionItem.session.state === SshSession.Disconnected
+                                         && !sessionItem.session.hostKeyMismatch
+                                text: qsTr("Reconnect")
+                                onClicked: sessionItem.session.reconnect()
+                            }
+                            MenuItem {
                                 text: qsTr("Close")
                                 onClicked: {
-                                    // The delegate is gone by the time the remorse timer fires
+                                    // The delegate and its context are gone by the time the remorse
+                                    // timer fires, so capture everything the callback needs
+                                    var manager = sessionManager
                                     var session = sessionItem.session
-                                    sessionItem.remorseDelete(function() { sessionManager.closeSession(session) })
+                                    sessionItem.remorseDelete(function() { manager.closeSession(session) })
                                 }
                             }
                         }
@@ -132,10 +140,9 @@ Page {
                             MenuItem {
                                 text: qsTr("Delete")
                                 onClicked: {
+                                    var store = hostStore
                                     var hostId = model.hostId
-                                    hostItem.remorseDelete(function() {
-                                        hostStore.removeHost(hostId)
-                                    })
+                                    hostItem.remorseDelete(function() { store.removeHost(hostId) })
                                 }
                             }
                         }

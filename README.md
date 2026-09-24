@@ -5,7 +5,11 @@ An SSH terminal for Sailfish OS.
 - Multiple connections at once, switchable from the app and visible on the cover
 - xterm-256color terminal (vim, top, tmux), pinch to zoom, copy and paste
 - Saved hosts, Ed25519 keys and remembered passwords kept in the Sailfish Secrets keychain
+- Reconnect dropped connections, recover from changed host keys
 - Color schemes: Default, Catppuccin Mocha, Dracula
+
+Needs Sailfish OS 5.1 or newer, on aarch64 or armv7hl. The app is sandboxed
+and asks for the Internet and Secrets permissions on first start.
 
 ## Building
 
@@ -19,9 +23,10 @@ Building needs the Sailfish SDK, with the project inside the SDK workspace:
 
 ```
 sfdk -c target=SailfishOS-5.1.0.11-aarch64 build
+sfdk -c target=SailfishOS-5.1.0.11-armv7hl build
 ```
 
-The RPM ends up in `RPMS/`.
+The RPM ends up in `RPMS/`. Clean the build files between targets.
 
 ## License
 

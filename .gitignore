@@ -1,4 +1,4 @@
-# Developer device password, read by qmake for the connect form
+# Developer device password for deploying to the phone
 passwd
 
 # Qt Creator per-user settings

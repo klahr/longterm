@@ -48,8 +48,10 @@ Page {
                     MenuItem {
                         text: qsTr("Delete")
                         onClicked: {
+                            // The delegate's context is gone when the remorse timer fires
+                            var store = keyStore
                             var keyId = model.keyId
-                            delegate.remorseDelete(function() { keyStore.removeKey(keyId) })
+                            delegate.remorseDelete(function() { store.removeKey(keyId) })
                         }
                     }
                 }

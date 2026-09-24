@@ -101,8 +101,7 @@ DISTFILES += qml/longterm.qml \
     qml/pages/SessionPage.qml \
     qml/pages/SessionsPage.qml \
     qml/pages/SettingsPage.qml \
-    rpm/longterm.changes.in \
-    rpm/longterm.changes.run.in \
+    rpm/longterm.changes \
     rpm/longterm.spec \
     translations/*.ts \
     longterm.desktop \
@@ -111,12 +110,6 @@ DISTFILES += qml/longterm.qml \
     README.md \
     icons/longterm.svg
 
-# Development convenience: prefill the connect form password from ./passwd.
-# The value ends up in the binary, so keep the file out of release builds.
-exists($$PWD/passwd) {
-    DEFINES += LONGTERM_DEV_PASSWORD=\\\"$$cat($$PWD/passwd)\\\"
-}
-
 # Source Code Pro (SIL Open Font License 1.1, see fonts/LICENSE.md)
 fonts.files = fonts/SourceCodePro-Medium.ttf fonts/SourceCodePro-Bold.ttf fonts/LICENSE.md
 fonts.path = /usr/share/$${TARGET}/fonts
@@ -124,12 +117,6 @@ INSTALLS += fonts
 
 SAILFISHAPP_ICONS = 86x86 108x108 128x128 172x172
 
-# to disable building translations every time, comment out the
-# following CONFIG line
+# Keeps translations/longterm.ts up to date as the source for translators.
+# Add translations/longterm-<lang>.ts files to TRANSLATIONS to ship them.
 CONFIG += sailfishapp_i18n
-
-# German translation is enabled as an example. If you aren't
-# planning to localize your app, remember to comment out the
-# following TRANSLATIONS line. And also do not forget to
-# modify the localized app name in the the .desktop file.
-TRANSLATIONS += translations/longterm-de.ts

@@ -47,11 +47,6 @@ int main(int argc, char *argv[])
     view->rootContext()->setContextProperty(QStringLiteral("terminalFontFamily"), terminalFontFamily);
     view->rootContext()->setContextProperty(QStringLiteral("keyStore"), &keyStore);
     view->rootContext()->setContextProperty(QStringLiteral("sessionManager"), &sessionManager);
-#ifdef LONGTERM_DEV_PASSWORD
-    view->rootContext()->setContextProperty(QStringLiteral("devPassword"), QStringLiteral(LONGTERM_DEV_PASSWORD));
-#else
-    view->rootContext()->setContextProperty(QStringLiteral("devPassword"), QString());
-#endif
     view->setSource(SailfishApp::pathToMainQml());
     view->show();
 

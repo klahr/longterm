@@ -1,0 +1,7 @@
+* Thu Sep 24 2026 Joachim Klahr <klahr@r8.rs> 0.1.0-1
+- First release
+- Multiple SSH connections with switching and a cover overview
+- xterm-256color terminal with scrollback, pinch to zoom, copy and paste
+- Saved hosts, Ed25519 key generation and import, remembered passwords
+  kept in the Sailfish Secrets keychain
+- Color schemes: Default, Catppuccin Mocha and Dracula

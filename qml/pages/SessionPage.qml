@@ -51,6 +51,10 @@ Page {
             left: parent.left
             right: parent.right
             bottom: keyBar.top
+            // Keep text and overlays out from under the display notch
+            topMargin: page.orientation === Orientation.Portrait ? Screen.topCutout.height : 0
+            leftMargin: page.orientation === Orientation.Landscape ? Screen.topCutout.height : 0
+            rightMargin: page.orientation === Orientation.LandscapeInverted ? Screen.topCutout.height : 0
         }
         terminal: session.terminal
         fontFamily: terminalFontFamily
@@ -114,6 +118,8 @@ Page {
         }
 
         Rectangle {
+            id: statusOverlay
+
             readonly property string status: {
                 switch (session.state) {
                 case SshSession.Connecting: return qsTr("Connecting")
@@ -121,27 +127,63 @@ Page {
                 default: return session.errorString.length > 0 ? session.errorString : qsTr("Disconnected")
                 }
             }
+            readonly property bool canReconnect: session.state === SshSession.Disconnected
 
             anchors {
                 top: parent.top
                 horizontalCenter: parent.horizontalCenter
                 margins: Theme.paddingSmall
             }
-            width: Math.min(statusLabel.implicitWidth + 2 * Theme.paddingMedium, parent.width - 2 * Theme.paddingSmall)
-            height: statusLabel.height + 2 * Theme.paddingSmall
+            width: canReconnect ? parent.width - 2 * Theme.paddingLarge
+                                : Math.min(statusLabel.implicitWidth + 2 * Theme.paddingMedium,
+                                           parent.width - 2 * Theme.paddingSmall)
+            height: statusColumn.height + 2 * Theme.paddingSmall
             radius: Theme.paddingSmall
             color: Theme.rgba(Theme.highlightDimmerColor, 0.9)
             visible: status.length > 0 && !terminalView.hasSelection
 
-            Label {
-                id: statusLabel
-                anchors.centerIn: parent
+            Column {
+                id: statusColumn
+
+                x: Theme.paddingMedium
+                y: Theme.paddingSmall
                 width: parent.width - 2 * Theme.paddingMedium
-                horizontalAlignment: Text.AlignHCenter
-                truncationMode: TruncationMode.Fade
-                font.pixelSize: Theme.fontSizeSmall
-                color: Theme.highlightColor
-                text: parent.status
+                spacing: Theme.paddingSmall
+
+                Label {
+                    id: statusLabel
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: statusOverlay.canReconnect ? Text.Wrap : Text.NoWrap
+                    truncationMode: statusOverlay.canReconnect ? TruncationMode.None : TruncationMode.Fade
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: Theme.highlightColor
+                    text: statusOverlay.status
+                }
+
+                Label {
+                    width: parent.width
+                    visible: session.hostKeyMismatch
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WrapAnywhere
+                    font.pixelSize: Theme.fontSizeExtraSmall
+                    color: Theme.secondaryHighlightColor
+                    text: qsTr("The server's key is not the one saved earlier. Only trust it if you know "
+                               + "the server was reinstalled or its keys changed. New key: %1")
+                          .arg(session.serverFingerprint)
+                }
+
+                Button {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    visible: statusOverlay.canReconnect
+                    text: session.hostKeyMismatch ? qsTr("Trust new key") : qsTr("Reconnect")
+                    onClicked: {
+                        if (session.hostKeyMismatch)
+                            session.trustNewHostKey()
+                        else
+                            session.reconnect()
+                    }
+                }
             }
         }
 

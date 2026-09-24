@@ -38,12 +38,8 @@ Page {
     }
 
     Component.onCompleted: {
-        if (hostId.length === 0) {
-            addressField.text = "localhost"
-            userField.text = "defaultuser"
-            passwordField.text = devPassword
+        if (hostId.length === 0)
             return
-        }
         var host = hostStore.host(hostId)
         nameField.text = host.name
         addressField.text = host.address
