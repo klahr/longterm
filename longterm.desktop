@@ -1,0 +1,20 @@
+[Desktop Entry]
+Type=Application
+X-Nemo-Application-Type=silica-qt5
+Icon=longterm
+Exec=/usr/bin/sailjail -p longterm.desktop /usr/bin/longterm
+Name=Longterm
+# translation example:
+# your app name in German locale (de)
+#
+# Remember to comment out the following line, if you do not want to use
+# a different app name in German locale (de).
+Name[de]=Longterm
+
+[X-Sailjail]
+# Replace with your organization as a reverse domain name
+OrganizationName=rs.r8
+# ApplicationName does not have to be identical to Name
+ApplicationName=longterm
+# Add the required permissions here
+Permissions=Internet;Secrets

@@ -1,0 +1,5 @@
+# Developer device password, read by qmake for the connect form
+passwd
+
+# Qt Creator per-user settings
+*.pro.user
