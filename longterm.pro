@@ -97,6 +97,7 @@ DISTFILES += qml/longterm.qml \
     qml/pages/ImportKeyDialog.qml \
     qml/pages/KeyPage.qml \
     qml/pages/KeysPage.qml \
+    qml/pages/RenameSessionDialog.qml \
     qml/pages/SessionMenuPage.qml \
     qml/pages/SessionPage.qml \
     qml/pages/SessionsPage.qml \

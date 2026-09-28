@@ -58,6 +58,17 @@ Page {
             }
 
             BackgroundItem {
+                onClicked: pageStack.animatorReplace(Qt.resolvedUrl("RenameSessionDialog.qml"), { session: page.session })
+
+                Label {
+                    x: Theme.horizontalPageMargin
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Rename")
+                    color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                }
+            }
+
+            BackgroundItem {
                 visible: session.state === SshSession.Disconnected && !session.hostKeyMismatch
                 onClicked: {
                     page.session.reconnect()
@@ -68,17 +79,6 @@ Page {
                     x: Theme.horizontalPageMargin
                     anchors.verticalCenter: parent.verticalCenter
                     text: qsTr("Reconnect")
-                    color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
-                }
-            }
-
-            BackgroundItem {
-                onClicked: pageStack.pop(pageStack.previousPage(page.sessionPage))
-
-                Label {
-                    x: Theme.horizontalPageMargin
-                    anchors.verticalCenter: parent.verticalCenter
-                    text: qsTr("Connections")
                     color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
                 }
             }
@@ -99,7 +99,17 @@ Page {
 
             SectionHeader {
                 text: qsTr("Switch to")
-                visible: sessionManager.count > 1
+            }
+
+            BackgroundItem {
+                onClicked: pageStack.pop(pageStack.previousPage(page.sessionPage))
+
+                Label {
+                    x: Theme.horizontalPageMargin
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Home")
+                    color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                }
             }
 
             Repeater {

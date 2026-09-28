@@ -5,7 +5,7 @@ import rs.r8.longterm 1.0
 Page {
     id: page
 
-    property var session
+    readonly property var session: sessionList.currentItem ? sessionList.currentItem.session : null
     readonly property Item currentView: sessionList.currentItem ? sessionList.currentItem.terminalView : null
 
     function showKeyboard() {
@@ -16,16 +16,23 @@ Page {
     }
 
     function showSession(otherSession) {
-        var index = sessionManager.indexOf(otherSession)
-        if (index < 0)
+        showIndex(sessionManager.indexOf(otherSession))
+    }
+
+    function showFirstSession() {
+        showIndex(0)
+    }
+
+    function showIndex(index) {
+        if (index < 0 || index >= sessionList.count)
             return
         sessionList.currentIndex = index
         sessionList.positionViewAtIndex(index, ListView.Beginning)
     }
 
     allowedOrientations: Orientation.All
-    // With several sessions the swipe switches between them, and going back is a swipe past the first
-    backNavigation: !sessionList.interactive
+    // With several sessions the swipe switches between them, so only the first session swipes back
+    backNavigation: !sessionList.interactive || sessionList.currentIndex === 0
 
     onStatusChanged: {
         if (status === PageStatus.Active)
@@ -34,10 +41,10 @@ Page {
 
     // The session is removed when its shell exits, so leave once none are left to show
     Connections {
-        target: session
-        onShellExited: {
-            if (sessionManager.count === 0)
-                pageStack.pop(pageStack.previousPage(page))
+        target: sessionManager
+        onCountChanged: {
+            if (sessionManager.count === 0 && page.status === PageStatus.Active)
+                pageStack.navigateBack()
         }
     }
 
@@ -62,9 +69,6 @@ Page {
     ListView {
         id: sessionList
 
-        readonly property real backThreshold: width / 5
-        property bool positioned
-
         anchors {
             top: parent.top
             left: parent.left
@@ -81,24 +85,13 @@ Page {
         highlightRangeMode: ListView.StrictlyEnforceRange
         cacheBuffer: width
         interactive: count > 1
+        // Not pulling past the first session leaves that swipe to the page stack for going back
+        boundsBehavior: currentIndex === 0 ? Flickable.StopAtBounds : Flickable.DragAndOvershootBounds
         model: sessionManager
 
-        // The first item becomes current before the pushed session can be shown
-        Component.onCompleted: {
-            page.showSession(page.session)
-            positioned = true
-        }
         onCurrentItemChanged: {
-            if (!positioned || !currentItem)
-                return
-            page.session = currentItem.session
-            if (page.status === PageStatus.Active)
+            if (currentItem && page.status === PageStatus.Active)
                 page.showKeyboard()
-        }
-        // Pulling the first session to the right leads back to the start page
-        onDraggingChanged: {
-            if (!dragging && contentX - originX < -backThreshold)
-                pageStack.navigateBack()
         }
 
         delegate: Item {
@@ -108,10 +101,29 @@ Page {
             width: sessionList.width
             height: sessionList.height
 
+            Label {
+                id: nameLabel
+
+                x: Theme.pageStackIndicatorWidth
+                width: parent.width - 2 * Theme.pageStackIndicatorWidth
+                height: implicitHeight + Theme.paddingSmall
+                verticalAlignment: Text.AlignVCenter
+                horizontalAlignment: Text.AlignHCenter
+                truncationMode: TruncationMode.Fade
+                font.pixelSize: Theme.fontSizeExtraSmall
+                color: Theme.highlightColor
+                text: session.name.length > 0 ? session.name : session.user + "@" + session.host
+            }
+
             TerminalView {
                 id: terminalView
 
-                anchors.fill: parent
+                anchors {
+                    top: nameLabel.bottom
+                    left: parent.left
+                    right: parent.right
+                    bottom: parent.bottom
+                }
                 terminal: session.terminal
                 fontFamily: terminalFontFamily
                 fontPixelSize: appSettings.terminalFontSize > 0 ? appSettings.terminalFontSize : Theme.fontSizeExtraSmall
@@ -289,6 +301,38 @@ Page {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // Lit like the page stack's own indicators while there are sessions to swipe to
+    Repeater {
+        model: [
+            { visible: sessionList.currentIndex > 0, x: 0, step: -1 },
+            { visible: sessionList.currentIndex < sessionList.count - 1, x: page.width, step: 1 }
+        ]
+
+        Item {
+            x: modelData.x - width / 2
+            width: Theme.pageStackIndicatorWidth
+            height: page.isPortrait ? Theme.itemSizeLarge : Theme.itemSizeSmall
+            visible: modelData.visible
+
+            GlassItem {
+                anchors.centerIn: parent
+                color: indicatorArea.pressed ? Theme.highlightColor : Theme.lightPrimaryColor
+                backgroundColor: palette.backgroundGlowColor
+                radius: 0.22
+                falloffRadius: 0.18
+            }
+
+            MouseArea {
+                id: indicatorArea
+
+                x: modelData.step < 0 ? parent.width / 2 : parent.width / 2 - width
+                width: Theme.itemSizeSmall
+                height: parent.height
+                onClicked: sessionList.currentIndex += modelData.step
             }
         }
     }

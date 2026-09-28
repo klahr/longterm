@@ -34,7 +34,10 @@ Page {
         else
             session = sessionManager.openSession(nameField.text.trim(), addressField.text, parseInt(portField.text),
                                                  userField.text, passwordField.text, keyId)
-        pageStack.animatorReplace(Qt.resolvedUrl("SessionPage.qml"), { session: session })
+        // The start page keeps the sessions attached to its right
+        var startPage = pageStack.previousPage(page)
+        pageStack.pop(startPage, PageStackAction.Immediate)
+        startPage.showSession(session)
     }
 
     Component.onCompleted: {

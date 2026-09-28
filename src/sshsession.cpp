@@ -411,6 +411,13 @@ void SshSession::trustNewHostKey()
     reconnect();
 }
 
+void SshSession::setSecret(SecretVault *vault, const QString &secretId, SecretKind kind)
+{
+    m_authVault = vault;
+    m_authSecretId = secretId;
+    m_authKind = kind;
+}
+
 void SshSession::connectWithSecret(SecretVault *vault, const QString &secretId, SecretKind kind)
 {
     if (m_state != Disconnected || !vault)
@@ -513,6 +520,14 @@ void SshSession::onWorkerFinished()
     m_worker->deleteLater();
     m_worker = nullptr;
     setState(Disconnected);
+}
+
+void SshSession::setName(const QString &name)
+{
+    if (m_name == name)
+        return;
+    m_name = name;
+    emit nameChanged();
 }
 
 void SshSession::setState(State state)

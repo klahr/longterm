@@ -12,7 +12,7 @@ class SshWorker;
 class SshSession : public QObject
 {
     Q_OBJECT
-    Q_PROPERTY(QString name READ name CONSTANT)
+    Q_PROPERTY(QString name READ name WRITE setName NOTIFY nameChanged)
     Q_PROPERTY(QString host READ host CONSTANT)
     Q_PROPERTY(int port READ port CONSTANT)
     Q_PROPERTY(QString user READ user CONSTANT)
@@ -40,6 +40,7 @@ public:
     ~SshSession();
 
     QString name() const { return m_name; }
+    void setName(const QString &name);
     QString host() const { return m_host; }
     int port() const { return m_port; }
     QString user() const { return m_user; }
@@ -51,6 +52,8 @@ public:
 
     Q_INVOKABLE void connectToHost(const QString &password);
     void connectWithSecret(SecretVault *vault, const QString &secretId, SecretKind kind);
+    // Sets up reconnect() for a session that was never connected
+    void setSecret(SecretVault *vault, const QString &secretId, SecretKind kind);
     Q_INVOKABLE void disconnectFromHost();
     // Connects again the same way as the last attempt
     Q_INVOKABLE void reconnect();
@@ -58,6 +61,7 @@ public:
     Q_INVOKABLE void trustNewHostKey();
 
 signals:
+    void nameChanged();
     void stateChanged();
     void errorStringChanged();
     // The remote shell exited normally, as opposed to the connection failing
@@ -80,7 +84,7 @@ private:
     QString knownHostsPath() const;
     void stopWorker();
 
-    const QString m_name;
+    QString m_name;
     const QString m_host;
     const int m_port;
     const QString m_user;

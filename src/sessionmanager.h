@@ -2,7 +2,9 @@
 #define SESSIONMANAGER_H
 
 #include <QAbstractListModel>
+#include <QHash>
 #include <QList>
+#include <QSettings>
 
 class HostStore;
 class SecretVault;
@@ -39,11 +41,21 @@ signals:
     void countChanged();
 
 private:
+    // What a session needs to be restored after a restart, a saved host or a one-off key
+    struct Origin {
+        QString hostId;
+        QString keyId;
+    };
+
     SshSession *addSession(const QString &name, const QString &host, int port, const QString &user);
+    void load();
+    void save();
 
     SecretVault *m_vault;
     HostStore *m_hosts;
     QList<SshSession *> m_sessions;
+    QHash<const SshSession *, Origin> m_origins;
+    QSettings m_settings;
 };
 
 #endif // SESSIONMANAGER_H

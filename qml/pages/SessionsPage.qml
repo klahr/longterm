@@ -14,7 +14,39 @@ Page {
         }
         var session = sessionManager.openHost(hostId)
         if (session)
-            pageStack.animatorPush(Qt.resolvedUrl("SessionPage.qml"), { session: session })
+            showSession(session)
+    }
+
+    function showSession(session) {
+        updateAttachedPage()
+        pageStack.nextPage(page).showSession(session)
+        pageStack.navigateForward()
+    }
+
+    // The sessions sit to the right of this page, so swiping forward leads to the first of them
+    function updateAttachedPage() {
+        var attached = pageStack.nextPage(page)
+        if (sessionManager.count === 0) {
+            if (attached)
+                pageStack.popAttached()
+        } else if (attached) {
+            attached.showFirstSession()
+        } else {
+            pageStack.pushAttached(Qt.resolvedUrl("SessionPage.qml"))
+        }
+    }
+
+    onStatusChanged: {
+        if (status === PageStatus.Active)
+            updateAttachedPage()
+    }
+
+    Connections {
+        target: sessionManager
+        onCountChanged: {
+            if (page.status === PageStatus.Active)
+                page.updateAttachedPage()
+        }
     }
 
     SilicaFlickable {
@@ -76,6 +108,11 @@ Page {
                                 onClicked: sessionItem.session.reconnect()
                             }
                             MenuItem {
+                                text: qsTr("Rename")
+                                onClicked: pageStack.animatorPush(Qt.resolvedUrl("RenameSessionDialog.qml"),
+                                                                  { session: sessionItem.session })
+                            }
+                            MenuItem {
                                 text: qsTr("Close")
                                 onClicked: {
                                     // The delegate and its context are gone by the time the remorse
@@ -87,7 +124,11 @@ Page {
                             }
                         }
                     }
-                    onClicked: pageStack.animatorPush(Qt.resolvedUrl("SessionPage.qml"), { session: session })
+                    onClicked: {
+                        if (session.state === SshSession.Disconnected && !session.hostKeyMismatch)
+                            session.reconnect()
+                        page.showSession(session)
+                    }
 
                     Column {
                         anchors.verticalCenter: parent.verticalCenter
