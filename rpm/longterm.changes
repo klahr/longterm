@@ -1,3 +1,17 @@
+* Mon Sep 28 2026 Joachim Klahr <klahr@r8.rs> 0.2.0-1
+- Keyboard-interactive login, and password prompts in the session with
+  an option to remember the password
+- Jump hosts, local port forwards and agent forwarding per host
+- Reconnect automatically when the network drops or changes
+- Ed25519, ECDSA and RSA key generation, and private key export
+- Known hosts list, and hosts import and export as ssh_config
+- Search in the scrollback, open links, clipboard from the server (OSC 52)
+- Configurable key toolbar with Alt, Home/End, PgUp/PgDn and F1-F12
+- Terminal bell vibrates, or notifies when the session is not on screen
+- Per-session color schemes, and Gruvbox Dark, Nord, Solarized Dark and
+  Solarized Light
+- Live session thumbnails in the connection list
+
 * Fri Sep 25 2026 Joachim Klahr <klahr@r8.rs> 0.1.1-1
 - Fix app not starting from the launcher
 
