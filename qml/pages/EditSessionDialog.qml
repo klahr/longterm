@@ -5,10 +5,13 @@ Dialog {
     id: dialog
 
     property var session
+    // Applied on accept like the other fields, empty follows the app's scheme
+    property string colorScheme: session.colorScheme
 
     onAccepted: {
         session.name = nameField.text.trim()
         session.startupScript = scriptArea.text
+        session.colorScheme = colorScheme
     }
 
     SilicaFlickable {
@@ -35,6 +38,18 @@ Dialog {
                 inputMethodHints: Qt.ImhNoPredictiveText
                 EnterKey.iconSource: "image://theme/icon-m-enter-next"
                 EnterKey.onClicked: scriptArea.focus = true
+            }
+
+            ValueButton {
+                label: qsTr("Color scheme")
+                value: dialog.colorScheme.length > 0
+                       ? colorSchemes.name(dialog.colorScheme)
+                       : qsTr("App default (%1)").arg(colorSchemes.name(appSettings.terminalColorScheme))
+                onClicked: {
+                    var picker = pageStack.push(Qt.resolvedUrl("ColorSchemesPage.qml"),
+                                                { forSession: true, currentScheme: dialog.colorScheme })
+                    picker.schemePicked.connect(function(schemeId) { dialog.colorScheme = schemeId })
+                }
             }
 
             TextArea {

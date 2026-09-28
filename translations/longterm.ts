@@ -32,6 +32,52 @@
     </message>
 </context>
 <context>
+    <name>EditSessionDialog</name>
+    <message>
+        <source>Save</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Startup script</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Typed into the shell on every connect. Saved unencrypted, so keep passwords out of it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>ExportKeyDialog</name>
+    <message>
+        <source>Copy</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copies the private key to the clipboard in OpenSSH format. Anyone who gets it can log in wherever the key is accepted, so set a passphrase unless the clipboard goes straight into a trusted place.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Passphrase, optional</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Passphrase</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Passphrase again</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The passphrases differ</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>GenerateKeyDialog</name>
     <message>
         <source>Generate</source>
@@ -42,7 +88,23 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Creates an Ed25519 key. The private key is kept in the device keychain.</source>
+        <source>Type</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ed25519</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>ECDSA P-256</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>RSA 3072</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ed25519 suits almost every server. Pick RSA for older devices that do not accept it. The private key is kept in the device keychain.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -112,11 +174,62 @@
         <source>Connect</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Advanced</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Jump host</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reach this host through another saved host, which needs a key or a saved password</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>None</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Forward agent</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Lets the server log in to other hosts with this key while connected. Only turn on for servers you trust.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Local port forwards, localPort:host:port</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Use localPort:host:port, separated by commas</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Port forwards, e.g. 8080:localhost:80</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>HostStore</name>
     <message>
         <source>Could not remember password: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>ImportHostsDialog</name>
+    <message>
+        <source>Import</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Paste hosts in ~/.ssh/config format. Host, HostName, Port, User, ProxyJump, ForwardAgent and LocalForward are read, hosts with the same name are updated. Keys and passwords are set on each host afterwards.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>ssh_config</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -157,6 +270,14 @@
         <source>Copy public key</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Export private key</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The private key is on the clipboard</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>KeyStore</name>
@@ -192,6 +313,10 @@
         <source>Could not store private key: %1</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Could not read private key: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>KeysPage</name>
@@ -225,6 +350,25 @@
     </message>
 </context>
 <context>
+    <name>KnownHostsPage</name>
+    <message>
+        <source>Known hosts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No known hosts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Host keys are saved the first time you connect</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Delete</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>SessionMenuPage</name>
     <message>
         <source>Paste</source>
@@ -239,11 +383,27 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Close connection</source>
+        <source>Switch to</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Switch to</source>
+        <source>Edit session</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Disconnect</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remove</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Home</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Find</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -279,6 +439,26 @@
     </message>
     <message>
         <source>Clear</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Answer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cancel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>OK</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Find in scrollback</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -317,10 +497,6 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Close</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Connecting</source>
         <translation type="unfinished"></translation>
     </message>
@@ -342,6 +518,14 @@
     </message>
     <message>
         <source>Delete</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Disconnect</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remove</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -375,6 +559,70 @@
         <source>You can also pinch the terminal to change the font size.</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Toolbar keys</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Vibrate on bell</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Notify on bell</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>When the session ringing is not on screen</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Let servers set the clipboard</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Programs such as tmux and vim can copy to the device clipboard (OSC 52). They cannot read it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Connections</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reconnect automatically</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>After the network drops or changes, for example between WLAN and mobile data. Programs on the server keep running only inside tmux or screen.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Known hosts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hosts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copy hosts as ssh_config</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Copied %n host(s) to the clipboard</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Import from ssh_config</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Read %n host(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
 </context>
 <context>
     <name>SshSession</name>
@@ -384,6 +632,10 @@
     </message>
     <message>
         <source>Could not read saved password: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Network changed</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -459,6 +711,68 @@
     </message>
     <message>
         <source>Connection lost</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not reach %1 from the jump host</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not create socket</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The server refused agent forwarding</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Agent forwarding is not available for this key</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Jump host</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Trusted new jump host key %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Jump host key has changed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not listen on local port %1: %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Forwarding local port %1 to %2:%3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not forward to %1:%2: %3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Jump host: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>ToolbarKeysPage</name>
+    <message>
+        <source>Toolbar keys</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The row scrolls when the keys do not fit</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>longterm</name>
+    <message>
+        <source>Terminal bell</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

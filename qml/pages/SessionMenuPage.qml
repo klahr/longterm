@@ -47,6 +47,20 @@ Page {
             }
 
             BackgroundItem {
+                onClicked: {
+                    page.sessionPage.startSearch()
+                    pageStack.pop()
+                }
+
+                Label {
+                    x: Theme.horizontalPageMargin
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Find")
+                    color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                }
+            }
+
+            BackgroundItem {
                 onClicked: pageStack.animatorReplace(Qt.resolvedUrl("SettingsPage.qml"))
 
                 Label {

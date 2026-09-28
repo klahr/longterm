@@ -6,33 +6,22 @@ Page {
 
     allowedOrientations: Orientation.All
 
+    Component.onCompleted: knownHosts.reload()
+
     SilicaListView {
         id: listView
 
         anchors.fill: parent
-        model: keyStore
+        model: knownHosts
 
         header: PageHeader {
-            title: qsTr("Keys")
-            description: keyStore.errorString
-        }
-
-        PullDownMenu {
-            busy: keyStore.busy
-            MenuItem {
-                text: qsTr("Import key")
-                onClicked: pageStack.animatorPush(Qt.resolvedUrl("ImportKeyDialog.qml"))
-            }
-            MenuItem {
-                text: qsTr("Generate key")
-                onClicked: pageStack.animatorPush(Qt.resolvedUrl("GenerateKeyDialog.qml"))
-            }
+            title: qsTr("Known hosts")
         }
 
         ViewPlaceholder {
-            enabled: listView.count === 0 && !keyStore.busy
-            text: qsTr("No keys")
-            hintText: qsTr("Pull down to generate or import a key")
+            enabled: listView.count === 0
+            text: qsTr("No known hosts")
+            hintText: qsTr("Host keys are saved the first time you connect")
         }
 
         delegate: ListItem {
@@ -42,26 +31,16 @@ Page {
             menu: Component {
                 ContextMenu {
                     MenuItem {
-                        text: qsTr("Copy public key")
-                        onClicked: Clipboard.text = model.publicKey
-                    }
-                    MenuItem {
                         text: qsTr("Delete")
                         onClicked: {
                             // The delegate's context is gone when the remorse timer fires
-                            var store = keyStore
-                            var keyId = model.keyId
-                            delegate.remorseDelete(function() { store.removeKey(keyId) })
+                            var hosts = knownHosts
+                            var row = model.index
+                            delegate.remorseDelete(function() { hosts.remove(row) })
                         }
                     }
                 }
             }
-            onClicked: pageStack.animatorPush(Qt.resolvedUrl("KeyPage.qml"), {
-                keyId: model.keyId,
-                name: model.name,
-                publicKey: model.publicKey,
-                fingerprint: model.fingerprint
-            })
 
             Column {
                 anchors.verticalCenter: parent.verticalCenter
@@ -70,13 +49,13 @@ Page {
 
                 Label {
                     width: parent.width
-                    text: model.name
+                    text: model.hosts
                     truncationMode: TruncationMode.Fade
                     color: delegate.highlighted ? Theme.highlightColor : Theme.primaryColor
                 }
                 Label {
                     width: parent.width
-                    text: model.fingerprint
+                    text: model.keyType + " " + model.fingerprint
                     truncationMode: TruncationMode.Fade
                     font.pixelSize: Theme.fontSizeExtraSmall
                     color: delegate.highlighted ? Theme.secondaryHighlightColor : Theme.secondaryColor

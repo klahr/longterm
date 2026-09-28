@@ -48,6 +48,8 @@ signals:
     void contentChanged();
     void outputReady(const QByteArray &data);
     void bell();
+    // A program asked to put text on the clipboard with OSC 52
+    void clipboardRequested(const QString &text);
 
 private:
     static void onOutput(const char *bytes, size_t length, void *user);
@@ -58,8 +60,10 @@ private:
     static int onPushLine(int columns, const VTermScreenCell *cells, void *user);
     static int onPopLine(int columns, VTermScreenCell *cells, void *user);
     static int onClearScrollback(void *user);
+    static int onSelectionSet(VTermSelectionMask mask, VTermStringFragment fragment, void *user);
 
     static const VTermScreenCallbacks s_screenCallbacks;
+    static const VTermSelectionCallbacks s_selectionCallbacks;
 
     VTerm *m_vterm;
     VTermScreen *m_screen;
@@ -69,6 +73,8 @@ private:
     bool m_cursorVisible;
     QString m_title;
     QByteArray m_pendingTitle;
+    QByteArray m_pendingClipboard;
+    bool m_clipboardTooLarge;
     QList<QVector<VTermScreenCell> > m_scrollback;
 };
 

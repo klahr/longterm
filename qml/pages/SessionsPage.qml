@@ -8,11 +8,8 @@ Page {
 
     allowedOrientations: Orientation.All
 
-    function connectToHost(hostId, needsPassword) {
-        if (needsPassword) {
-            pageStack.animatorPush(Qt.resolvedUrl("HostPage.qml"), { hostId: hostId })
-            return
-        }
+    // Hosts without a key or saved password ask for it in the session
+    function connectToHost(hostId) {
         var session = sessionManager.openHost(hostId)
         if (session)
             showSession(session)
@@ -205,7 +202,7 @@ Page {
                             }
                         }
                     }
-                    onClicked: page.connectToHost(model.hostId, model.keyId.length === 0 && !model.hasPassword)
+                    onClicked: page.connectToHost(model.hostId)
 
                     Column {
                         anchors.verticalCenter: parent.verticalCenter

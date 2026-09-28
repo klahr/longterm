@@ -2,15 +2,35 @@ import QtQuick 2.0
 import Sailfish.Silica 1.0
 import rs.r8.longterm 1.0
 import "../components"
+import "../components/Keys.js" as Keys
 
 Page {
     id: page
 
     readonly property var session: sessionList.currentItem ? sessionList.currentItem.session : null
     readonly property Item currentView: sessionList.currentItem ? sessionList.currentItem.terminalView : null
+    property bool searching
+
+    function startSearch() {
+        searching = true
+        searchField.forceActiveFocus()
+    }
+
+    function stopSearch() {
+        searching = false
+        searchField.text = ""
+        if (currentView)
+            currentView.clearSelection()
+        showKeyboard()
+    }
+
+    function findNext(backwards) {
+        if (currentView && searchField.text.length > 0)
+            searchField.errorHighlight = !currentView.find(searchField.text, backwards)
+    }
 
     function showKeyboard() {
-        if (!currentView)
+        if (!currentView || searching || (session && session.prompting))
             return
         currentView.forceActiveFocus()
         Qt.inputMethod.show()
@@ -36,7 +56,11 @@ Page {
     backNavigation: !sessionList.interactive || sessionList.currentIndex === 0
 
     onStatusChanged: {
-        if (status === PageStatus.Active)
+        if (status !== PageStatus.Active)
+            return
+        if (searching)
+            searchField.forceActiveFocus()
+        else
             showKeyboard()
     }
 
@@ -74,7 +98,7 @@ Page {
             top: parent.top
             left: parent.left
             right: parent.right
-            bottom: keyBar.top
+            bottom: searchBar.top
             // Keep text and overlays out from under the display notch
             topMargin: page.orientation === Orientation.Portrait ? Screen.topCutout.height : 0
             leftMargin: page.orientation === Orientation.Landscape ? Screen.topCutout.height : 0
@@ -96,6 +120,8 @@ Page {
         }
 
         delegate: Item {
+            id: delegateItem
+
             readonly property var session: model.session
             readonly property alias terminalView: terminalView
 
@@ -141,7 +167,7 @@ Page {
                 terminal: session.terminal
                 fontFamily: terminalFontFamily
                 fontPixelSize: appSettings.terminalFontSize > 0 ? appSettings.terminalFontSize : Theme.fontSizeExtraSmall
-                colorScheme: appSettings.terminalColorScheme
+                colorScheme: session.colorScheme.length > 0 ? session.colorScheme : appSettings.terminalColorScheme
 
                 PinchArea {
                     property int startSize
@@ -204,19 +230,20 @@ Page {
 
                     readonly property string status: {
                         switch (session.state) {
-                        case SshSession.Connecting: return qsTr("Connecting")
+                        case SshSession.Connecting: return session.prompting ? session.promptText : qsTr("Connecting")
                         case SshSession.Connected: return ""
                         default: return session.errorString.length > 0 ? session.errorString : qsTr("Disconnected")
                         }
                     }
                     readonly property bool canReconnect: session.state === SshSession.Disconnected
+                    readonly property bool expanded: canReconnect || session.prompting
 
                     anchors {
                         top: parent.top
                         horizontalCenter: parent.horizontalCenter
                         margins: Theme.paddingSmall
                     }
-                    width: canReconnect ? parent.width - 2 * Theme.paddingLarge
+                    width: expanded ? parent.width - 2 * Theme.paddingLarge
                                         : Math.min(statusLabel.implicitWidth + 2 * Theme.paddingMedium,
                                                    parent.width - 2 * Theme.paddingSmall)
                     height: statusColumn.height + 2 * Theme.paddingSmall
@@ -236,8 +263,8 @@ Page {
                             id: statusLabel
                             width: parent.width
                             horizontalAlignment: Text.AlignHCenter
-                            wrapMode: statusOverlay.canReconnect ? Text.Wrap : Text.NoWrap
-                            truncationMode: statusOverlay.canReconnect ? TruncationMode.None : TruncationMode.Fade
+                            wrapMode: statusOverlay.expanded ? Text.Wrap : Text.NoWrap
+                            truncationMode: statusOverlay.expanded ? TruncationMode.None : TruncationMode.Fade
                             font.pixelSize: Theme.fontSizeSmall
                             color: Theme.highlightColor
                             text: statusOverlay.status
@@ -253,6 +280,55 @@ Page {
                             text: qsTr("The server's key is not the one saved earlier. Only trust it if you know "
                                        + "the server was reinstalled or its keys changed. New key: %1")
                                   .arg(session.serverFingerprint)
+                        }
+
+                        TextField {
+                            id: promptField
+
+                            function submit() {
+                                session.answerPrompt(text, rememberPromptSwitch.checked)
+                                text = ""
+                                terminalView.forceActiveFocus()
+                            }
+
+                            width: parent.width
+                            visible: session.prompting
+                            echoMode: session.promptEcho ? TextInput.Normal : TextInput.Password
+                            inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
+                            placeholderText: qsTr("Answer")
+                            label: placeholderText
+                            EnterKey.iconSource: "image://theme/icon-m-enter-accept"
+                            EnterKey.onClicked: submit()
+                            onVisibleChanged: {
+                                if (visible && sessionList.currentItem === delegateItem) {
+                                    forceActiveFocus()
+                                    Qt.inputMethod.show()
+                                }
+                            }
+                        }
+
+                        TextSwitch {
+                            id: rememberPromptSwitch
+                            visible: session.prompting && session.promptCanRemember
+                            text: qsTr("Remember password")
+                            description: qsTr("Kept in the device keychain")
+                            checked: true
+                        }
+
+                        Row {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            visible: session.prompting
+                            spacing: Theme.paddingLarge
+
+                            Button {
+                                text: qsTr("Cancel")
+                                onClicked: session.disconnectFromHost()
+                            }
+
+                            Button {
+                                text: qsTr("OK")
+                                onClicked: promptField.submit()
+                            }
                         }
 
                         Button {
@@ -284,18 +360,28 @@ Page {
                     Row {
                         id: selectionActions
 
+                        // Re-read whenever the selection changes
+                        readonly property string url: terminalView.hasSelection ? terminalView.selectedUrl() : ""
+
                         Repeater {
-                            model: [
-                                { label: qsTr("Copy"), action: "copy" },
-                                { label: qsTr("Paste"), action: "paste" },
-                                { label: qsTr("Clear"), action: "clear" }
-                            ]
+                            model: {
+                                var actions = []
+                                if (selectionActions.url.length > 0)
+                                    actions.push({ label: qsTr("Open"), action: "open" })
+                                actions.push({ label: qsTr("Copy"), action: "copy" })
+                                actions.push({ label: qsTr("Paste"), action: "paste" })
+                                actions.push({ label: qsTr("Clear"), action: "clear" })
+                                return actions
+                            }
 
                             BackgroundItem {
                                 width: actionLabel.width + 2 * Theme.paddingLarge
                                 height: Theme.itemSizeExtraSmall
                                 onClicked: {
-                                    if (modelData.action === "copy") {
+                                    if (modelData.action === "open") {
+                                        Qt.openUrlExternally(selectionActions.url)
+                                        terminalView.clearSelection()
+                                    } else if (modelData.action === "copy") {
                                         Clipboard.text = terminalView.selectedText()
                                         terminalView.clearSelection()
                                     } else if (modelData.action === "paste") {
@@ -352,59 +438,122 @@ Page {
     }
 
     Row {
+        id: searchBar
+
+        anchors {
+            left: parent.left
+            right: parent.right
+            bottom: keyBar.top
+        }
+        height: page.searching ? searchField.height : 0
+        visible: page.searching
+
+        SearchField {
+            id: searchField
+
+            width: parent.width - 3 * Theme.itemSizeSmall
+            placeholderText: qsTr("Find in scrollback")
+            inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
+            EnterKey.iconSource: "image://theme/icon-m-up"
+            EnterKey.onClicked: page.findNext(true)
+            onTextChanged: {
+                errorHighlight = false
+                if (page.currentView)
+                    page.currentView.clearSelection()
+                page.findNext(true)
+            }
+        }
+
+        IconButton {
+            width: Theme.itemSizeSmall
+            anchors.verticalCenter: parent.verticalCenter
+            icon.source: "image://theme/icon-m-up"
+            onClicked: page.findNext(true)
+        }
+
+        IconButton {
+            width: Theme.itemSizeSmall
+            anchors.verticalCenter: parent.verticalCenter
+            icon.source: "image://theme/icon-m-down"
+            onClicked: page.findNext(false)
+        }
+
+        IconButton {
+            width: Theme.itemSizeSmall
+            anchors.verticalCenter: parent.verticalCenter
+            icon.source: "image://theme/icon-m-close"
+            onClicked: page.stopSearch()
+        }
+    }
+
+    Item {
         id: keyBar
 
-        readonly property var keys: [
-            { label: "Esc", key: Qt.Key_Escape },
-            { label: "Tab", key: Qt.Key_Tab },
-            { label: "Ctrl", modifier: "ctrl" },
-            { label: "←", key: Qt.Key_Left },
-            { label: "↑", key: Qt.Key_Up },
-            { label: "↓", key: Qt.Key_Down },
-            { label: "→", key: Qt.Key_Right },
-            { label: "|", text: "|" },
-            { label: "/", text: "/" },
-            { label: "-", text: "-" },
-            { label: "\u22ee", action: "menu" }
-        ]
+        readonly property var keys: Keys.selected(appSettings.toolbarKeys)
+        // Keys share the width while they fit, beyond that the row scrolls
+        readonly property real keyWidth: Math.max(width / (keys.length + 1), Theme.itemSizeExtraSmall * 0.75)
+
+        function press(key) {
+            var view = page.currentView
+            if (!view)
+                return
+            if (key.modifier === "ctrl")
+                view.ctrlLatched = !view.ctrlLatched
+            else if (key.modifier === "alt")
+                view.altLatched = !view.altLatched
+            else if (key.action === "menu")
+                pageStack.animatorPush(Qt.resolvedUrl("SessionMenuPage.qml"),
+                                       { session: page.session, sessionPage: page, terminalView: view })
+            else if (key.key !== undefined)
+                view.sendKey(key.key)
+            else
+                view.sendText(key.text)
+        }
 
         anchors {
             left: parent.left
             right: parent.right
             bottom: parent.bottom
         }
+        height: Theme.itemSizeExtraSmall
 
-        Repeater {
-            model: keyBar.keys
+        Flickable {
+            anchors {
+                left: parent.left
+                right: menuKey.left
+                top: parent.top
+                bottom: parent.bottom
+            }
+            clip: true
+            contentWidth: keyRow.width
+            flickableDirection: Flickable.HorizontalFlick
+            interactive: contentWidth > width
+            boundsBehavior: Flickable.StopAtBounds
 
-            BackgroundItem {
-                readonly property bool latched: modelData.modifier === "ctrl" && page.currentView !== null && page.currentView.ctrlLatched
+            Row {
+                id: keyRow
 
-                width: keyBar.width / keyBar.keys.length
-                height: Theme.itemSizeExtraSmall
-                highlighted: down || latched
-                onClicked: {
-                    var view = page.currentView
-                    if (!view)
-                        return
-                    if (modelData.modifier === "ctrl")
-                        view.ctrlLatched = !view.ctrlLatched
-                    else if (modelData.action === "menu")
-                        pageStack.animatorPush(Qt.resolvedUrl("SessionMenuPage.qml"),
-                                               { session: page.session, sessionPage: page, terminalView: view })
-                    else if (modelData.key !== undefined)
-                        view.sendKey(modelData.key)
-                    else
-                        view.sendText(modelData.text)
-                }
+                Repeater {
+                    model: keyBar.keys
 
-                Label {
-                    anchors.centerIn: parent
-                    text: modelData.label
-                    font.pixelSize: Theme.fontSizeSmall
-                    color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                    KeyButton {
+                        width: keyBar.keyWidth
+                        key: modelData
+                        view: page.currentView
+                        onClicked: keyBar.press(modelData)
+                    }
                 }
             }
+        }
+
+        KeyButton {
+            id: menuKey
+
+            anchors.right: parent.right
+            width: keyBar.keyWidth
+            key: ({ label: "\u22ee", action: "menu" })
+            view: page.currentView
+            onClicked: keyBar.press(key)
         }
     }
 }

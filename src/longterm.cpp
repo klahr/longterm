@@ -9,6 +9,7 @@
 #include "colorschemes.h"
 #include "hoststore.h"
 #include "keystore.h"
+#include "knownhosts.h"
 #include "secretvault.h"
 #include "sessionmanager.h"
 #include "sshsession.h"
@@ -38,7 +39,8 @@ int main(int argc, char *argv[])
     SecretVault vault;
     KeyStore keyStore(&vault);
     HostStore hostStore(&vault);
-    SessionManager sessionManager(&vault, &hostStore);
+    SessionManager sessionManager(&vault, &hostStore, &appSettings);
+    KnownHosts knownHosts;
 
     QScopedPointer<QQuickView> view(SailfishApp::createView());
     view->rootContext()->setContextProperty(QStringLiteral("appSettings"), &appSettings);
@@ -46,6 +48,7 @@ int main(int argc, char *argv[])
     view->rootContext()->setContextProperty(QStringLiteral("hostStore"), &hostStore);
     view->rootContext()->setContextProperty(QStringLiteral("terminalFontFamily"), terminalFontFamily);
     view->rootContext()->setContextProperty(QStringLiteral("keyStore"), &keyStore);
+    view->rootContext()->setContextProperty(QStringLiteral("knownHosts"), &knownHosts);
     view->rootContext()->setContextProperty(QStringLiteral("sessionManager"), &sessionManager);
     view->setSource(SailfishApp::pathToMainQml());
     view->show();

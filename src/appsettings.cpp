@@ -4,6 +4,11 @@
 
 static const char TerminalFontSizeKey[] = "terminal/fontSize";
 static const char TerminalColorSchemeKey[] = "terminal/colorScheme";
+static const char ToolbarKeysKey[] = "terminal/toolbarKeys";
+static const char BellVibrateKey[] = "terminal/bellVibrate";
+static const char BellNotifyKey[] = "terminal/bellNotify";
+static const char RemoteClipboardKey[] = "terminal/remoteClipboard";
+static const char AutoReconnectKey[] = "connection/autoReconnect";
 
 AppSettings::AppSettings(QObject *parent)
     : QObject(parent)
@@ -37,4 +42,78 @@ void AppSettings::setTerminalColorScheme(const QString &colorScheme)
         return;
     m_settings.setValue(QLatin1String(TerminalColorSchemeKey), colorScheme);
     emit terminalColorSchemeChanged();
+}
+
+QStringList AppSettings::toolbarKeys() const
+{
+    static const QStringList defaultKeys = QStringList()
+            << QStringLiteral("esc") << QStringLiteral("tab") << QStringLiteral("ctrl") << QStringLiteral("alt")
+            << QStringLiteral("left") << QStringLiteral("up") << QStringLiteral("down") << QStringLiteral("right")
+            << QStringLiteral("pipe") << QStringLiteral("slash") << QStringLiteral("dash");
+    return m_settings.value(QLatin1String(ToolbarKeysKey), defaultKeys).toStringList();
+}
+
+void AppSettings::setToolbarKeys(const QStringList &keys)
+{
+    if (keys == toolbarKeys())
+        return;
+    m_settings.setValue(QLatin1String(ToolbarKeysKey), keys);
+    emit toolbarKeysChanged();
+}
+
+bool AppSettings::bellVibrate() const
+{
+    return flag(BellVibrateKey, true);
+}
+
+void AppSettings::setBellVibrate(bool vibrate)
+{
+    if (setFlag(BellVibrateKey, true, vibrate))
+        emit bellVibrateChanged();
+}
+
+bool AppSettings::bellNotify() const
+{
+    return flag(BellNotifyKey, true);
+}
+
+void AppSettings::setBellNotify(bool notify)
+{
+    if (setFlag(BellNotifyKey, true, notify))
+        emit bellNotifyChanged();
+}
+
+bool AppSettings::remoteClipboard() const
+{
+    return flag(RemoteClipboardKey, true);
+}
+
+void AppSettings::setRemoteClipboard(bool allow)
+{
+    if (setFlag(RemoteClipboardKey, true, allow))
+        emit remoteClipboardChanged();
+}
+
+bool AppSettings::autoReconnect() const
+{
+    return flag(AutoReconnectKey, true);
+}
+
+void AppSettings::setAutoReconnect(bool reconnect)
+{
+    if (setFlag(AutoReconnectKey, true, reconnect))
+        emit autoReconnectChanged();
+}
+
+bool AppSettings::flag(const char *key, bool defaultValue) const
+{
+    return m_settings.value(QLatin1String(key), defaultValue).toBool();
+}
+
+bool AppSettings::setFlag(const char *key, bool defaultValue, bool value)
+{
+    if (value == flag(key, defaultValue))
+        return false;
+    m_settings.setValue(QLatin1String(key), value);
+    return true;
 }

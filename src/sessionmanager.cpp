@@ -2,18 +2,28 @@
 
 #include <QQmlEngine>
 #include <QStandardPaths>
+#include <QTimer>
 
-#include "hoststore.h"
+#include "appsettings.h"
 #include "sshsession.h"
 
-SessionManager::SessionManager(SecretVault *vault, HostStore *hosts, QObject *parent)
+// Gives the network a moment to settle after a connection drops
+static const int ReconnectDelayMs = 2000;
+
+SessionManager::SessionManager(SecretVault *vault, HostStore *hosts, AppSettings *appSettings, QObject *parent)
     : QAbstractListModel(parent)
     , m_vault(vault)
     , m_hosts(hosts)
     , m_settings(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation)
                  + QStringLiteral("/sessions.conf"), QSettings::IniFormat)
+    , m_appSettings(appSettings)
 {
     load();
+    for (const QNetworkConfiguration &configuration : m_network.allConfigurations(QNetworkConfiguration::Active))
+        m_activeNetworks.append(configuration.identifier());
+    m_activeNetworks.sort();
+    connect(&m_network, &QNetworkConfigurationManager::onlineStateChanged, this, &SessionManager::onNetworkChanged);
+    connect(&m_network, &QNetworkConfigurationManager::configurationChanged, this, &SessionManager::onNetworkChanged);
 }
 
 int SessionManager::rowCount(const QModelIndex &parent) const
@@ -51,20 +61,78 @@ SshSession *SessionManager::openSession(const QString &name, const QString &host
     return session;
 }
 
-SshSession *SessionManager::openHost(const QString &hostId)
+SshSession *SessionManager::openHost(const QString &hostId, const QString &password)
 {
     HostStore::Host host;
-    if (!m_hosts->find(hostId, &host) || (host.keyId.isEmpty() && !host.hasPassword))
+    if (!m_hosts->find(hostId, &host))
         return nullptr;
 
     SshSession *session = addSession(host.name, host.address, host.port, host.user);
+    configure(session, host);
     m_origins.insert(session, Origin { host.id, QString() });
     save();
+    if (host.keyId.isEmpty() && (!password.isEmpty() || !host.hasPassword)) {
+        // Without a password the session asks for one when the server wants it
+        session->connectToHost(password);
+        return session;
+    }
     if (host.keyId.isEmpty())
         session->connectWithSecret(m_vault, HostStore::passwordSecretId(host.id), SshSession::Password);
     else
         session->connectWithSecret(m_vault, host.keyId, SshSession::PrivateKey);
     return session;
+}
+
+void SessionManager::configure(SshSession *session, const HostStore::Host &host)
+{
+    session->setCanRememberPassword(host.keyId.isEmpty());
+    connect(session, &SshSession::passwordRemembered, this, [this, session](const QString &password) {
+        rememberPassword(session, password);
+    });
+    session->setForwardAgent(host.forwardAgent && !host.keyId.isEmpty());
+    session->setLocalForwards(host.localForwards);
+    HostStore::Host jump;
+    if (host.jumpHostId.isEmpty() || !m_hosts->find(host.jumpHostId, &jump))
+        return;
+    if (!jump.keyId.isEmpty())
+        session->setJumpHost(jump.address, jump.port, jump.user, m_vault, jump.keyId, SshSession::PrivateKey);
+    else if (jump.hasPassword)
+        session->setJumpHost(jump.address, jump.port, jump.user, m_vault,
+                             HostStore::passwordSecretId(jump.id), SshSession::Password);
+    else
+        session->setJumpHost(jump.address, jump.port, jump.user, nullptr, QString(), SshSession::Password);
+}
+
+void SessionManager::rememberPassword(SshSession *session, const QString &password)
+{
+    const QString hostId = m_origins.value(session).hostId;
+    if (hostId.isEmpty())
+        return;
+    // The session keeps using the typed password until the next start, which reads the stored one
+    m_hosts->rememberPassword(hostId, password);
+}
+
+void SessionManager::onNetworkChanged()
+{
+    QStringList active;
+    for (const QNetworkConfiguration &configuration : m_network.allConfigurations(QNetworkConfiguration::Active))
+        active.append(configuration.identifier());
+    active.sort();
+    if (active == m_activeNetworks)
+        return;
+    m_activeNetworks = active;
+    if (!m_appSettings->autoReconnect())
+        return;
+
+    const bool online = m_network.isOnline();
+    for (SshSession *session : m_sessions) {
+        // A connection from an address the device no longer has is dead,
+        // however long TCP would take to notice
+        if (session->state() == SshSession::Connected && !session->hasLocalAddress())
+            session->dropConnection();
+        else if (online && session->isLost() && session->state() == SshSession::Disconnected)
+            session->reconnect();
+    }
 }
 
 SshSession *SessionManager::addSession(const QString &name, const QString &host, int port,
@@ -86,6 +154,16 @@ SshSession *SessionManager::addSession(const QString &name, const QString &host,
     connect(session, &SshSession::shellExited, this, [this, session]() { closeSession(session); });
     connect(session, &SshSession::nameChanged, this, &SessionManager::save);
     connect(session, &SshSession::startupScriptChanged, this, &SessionManager::save);
+    connect(session, &SshSession::colorSchemeChanged, this, &SessionManager::save);
+    connect(session, &SshSession::connectionLost, this, [this, session]() {
+        // Tried even when the bearer says offline, a failure waits for the next network change
+        if (!m_appSettings->autoReconnect())
+            return;
+        QTimer::singleShot(ReconnectDelayMs, session, [session]() {
+            if (session->isLost())
+                session->reconnect();
+        });
+    });
 
     beginInsertRows(QModelIndex(), m_sessions.size(), m_sessions.size());
     m_sessions.append(session);
@@ -131,13 +209,15 @@ void SessionManager::load()
 
         if (!hostId.isEmpty()) {
             HostStore::Host host;
-            if (!m_hosts->find(hostId, &host) || (host.keyId.isEmpty() && !host.hasPassword))
+            if (!m_hosts->find(hostId, &host))
                 continue;
             SshSession *session = addSession(name, host.address, host.port, host.user);
-            if (host.keyId.isEmpty())
-                session->setSecret(m_vault, HostStore::passwordSecretId(host.id), SshSession::Password);
-            else
+            configure(session, host);
+            // Hosts with neither ask for the password on connect
+            if (!host.keyId.isEmpty())
                 session->setSecret(m_vault, host.keyId, SshSession::PrivateKey);
+            else if (host.hasPassword)
+                session->setSecret(m_vault, HostStore::passwordSecretId(host.id), SshSession::Password);
             m_origins.insert(session, Origin { hostId, QString() });
         } else if (!keyId.isEmpty()) {
             SshSession *session = addSession(name, m_settings.value(QStringLiteral("host")).toString(),
@@ -149,6 +229,7 @@ void SessionManager::load()
             continue;
         }
         m_sessions.last()->setStartupScript(m_settings.value(QStringLiteral("startupScript")).toString());
+        m_sessions.last()->setColorScheme(m_settings.value(QStringLiteral("colorScheme")).toString());
     }
     m_settings.endArray();
 }
@@ -170,6 +251,7 @@ void SessionManager::save()
         m_settings.setValue(QStringLiteral("port"), session->port());
         m_settings.setValue(QStringLiteral("user"), session->user());
         m_settings.setValue(QStringLiteral("startupScript"), session->startupScript());
+        m_settings.setValue(QStringLiteral("colorScheme"), session->colorScheme());
     }
     m_settings.endArray();
     m_settings.sync();

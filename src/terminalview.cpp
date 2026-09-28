@@ -6,6 +6,7 @@
 #include <QInputMethodEvent>
 #include <QKeyEvent>
 #include <QPainter>
+#include <QRegExp>
 #include <QStringList>
 
 #include <cmath>
@@ -238,10 +239,8 @@ void TerminalView::startSelection(qreal x, qreal y)
     cellAt(x, y, &m_anchorLine, &m_anchorColumn);
     m_endLine = m_anchorLine;
     m_endColumn = m_anchorColumn;
-    if (!m_hasSelection) {
-        m_hasSelection = true;
-        emit selectionChanged();
-    }
+    m_hasSelection = true;
+    emit selectionChanged();
     update();
 }
 
@@ -250,6 +249,7 @@ void TerminalView::updateSelection(qreal x, qreal y)
     if (!m_terminal || !m_hasSelection)
         return;
     cellAt(x, y, &m_endLine, &m_endColumn);
+    emit selectionChanged();
     update();
 }
 
@@ -280,10 +280,8 @@ bool TerminalView::selectWordAt(qreal x, qreal y)
     m_anchorColumn = first;
     m_endLine = line;
     m_endColumn = last;
-    if (!m_hasSelection) {
-        m_hasSelection = true;
-        emit selectionChanged();
-    }
+    m_hasSelection = true;
+    emit selectionChanged();
     update();
     return true;
 }
@@ -323,6 +321,65 @@ QString TerminalView::selectedText() const
         lines.append(text);
     }
     return lines.join(QLatin1Char('\n'));
+}
+
+QString TerminalView::selectedUrl() const
+{
+    QString text = selectedText().trimmed();
+    // Punctuation after a link is usually the sentence around it
+    text.remove(QRegExp(QStringLiteral("[.,;:!?'\")\\]>]+$")));
+    if (QRegExp(QStringLiteral("(https?|ftp)://\\S+"), Qt::CaseInsensitive).exactMatch(text))
+        return text;
+    if (QRegExp(QStringLiteral("www\\.\\S+\\.\\S+"), Qt::CaseInsensitive).exactMatch(text))
+        return QStringLiteral("http://") + text;
+    return QString();
+}
+
+bool TerminalView::find(const QString &text, bool backwards)
+{
+    if (!m_terminal || text.isEmpty())
+        return false;
+
+    const int scrollback = m_terminal->scrollbackLines();
+    const int total = scrollback + m_terminal->rows();
+    // Continue from the current match, or start at the bottom going up and the top going down
+    int line = backwards ? total - 1 : 0;
+    int startColumn = -1;
+    if (m_hasSelection) {
+        int endLine, endColumn;
+        orderedSelection(&line, &startColumn, &endLine, &endColumn);
+    }
+
+    for (int step = 0; step <= total; ++step) {
+        QVector<int> columns;
+        const QString content = lineText(line, &columns);
+        int from;
+        if (step > 0 || !m_hasSelection) {
+            from = backwards ? content.size() - 1 : 0;
+        } else {
+            int start = 0;
+            while (start < columns.size() && columns.at(start) < startColumn)
+                ++start;
+            from = backwards ? start - 1 : start + 1;
+        }
+        const int index = from < 0 ? -1 : backwards ? content.lastIndexOf(text, from, Qt::CaseInsensitive)
+                                                    : content.indexOf(text, from, Qt::CaseInsensitive);
+        if (index >= 0) {
+            m_anchorLine = line;
+            m_anchorColumn = columns.at(index);
+            m_endLine = line;
+            m_endColumn = columns.at(index + text.size() - 1);
+            m_hasSelection = true;
+            emit selectionChanged();
+            const int row = line - (scrollback - m_scrollOffset);
+            if (row < 0 || row >= m_terminal->rows())
+                setScrollOffset(scrollback - line + m_terminal->rows() / 2);
+            update();
+            return true;
+        }
+        line = backwards ? (line + total - 1) % total : (line + 1) % total;
+    }
+    return false;
 }
 
 void TerminalView::paint(QPainter *painter)
@@ -526,6 +583,21 @@ void TerminalView::cellAt(qreal x, qreal y, int *line, int *column) const
     const int row = qBound(0, int(y / m_cellHeight), m_terminal->rows() - 1);
     *column = qBound(0, int(x / m_cellWidth), m_terminal->columns() - 1);
     *line = m_terminal->scrollbackLines() - m_scrollOffset + row;
+}
+
+QString TerminalView::lineText(int line, QVector<int> *columns) const
+{
+    const int row = line - m_terminal->scrollbackLines();
+    QString text;
+    for (int column = 0; column < m_terminal->columns();) {
+        const VTermScreenCell cell = m_terminal->cell(row, column);
+        const int before = text.size();
+        appendCellText(text, cell);
+        for (int i = before; i < text.size(); ++i)
+            columns->append(column);
+        column += qMax(1, int(cell.width));
+    }
+    return text;
 }
 
 void TerminalView::orderedSelection(int *startLine, int *startColumn, int *endLine, int *endColumn) const

@@ -59,6 +59,11 @@ public:
     Q_INVOKABLE bool selectWordAt(qreal x, qreal y);
     Q_INVOKABLE void clearSelection();
     Q_INVOKABLE QString selectedText() const;
+    // The selection as a link to open, or empty when it is not one
+    Q_INVOKABLE QString selectedUrl() const;
+    // Selects the next match above or below the current one, scrolling to it,
+    // and wraps around. Returns false when there is none.
+    Q_INVOKABLE bool find(const QString &text, bool backwards);
 
     void paint(QPainter *painter) override;
     QVariant inputMethodQuery(Qt::InputMethodQuery query) const override;
@@ -89,6 +94,8 @@ private:
     // Lines count from the oldest scrollback line so they survive scrolling
     void cellAt(qreal x, qreal y, int *line, int *column) const;
     void orderedSelection(int *startLine, int *startColumn, int *endLine, int *endColumn) const;
+    // columns gets the cell column of each character
+    QString lineText(int line, QVector<int> *columns) const;
 
     QPointer<Terminal> m_terminal;
     QFont m_font;

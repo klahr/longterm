@@ -38,14 +38,18 @@ public:
     Q_INVOKABLE int indexOf(const QString &keyId) const;
     // Returns an empty string for a usable key, otherwise why it is not
     Q_INVOKABLE QString validatePrivateKey(const QString &privateKey, const QString &passphrase) const;
-    Q_INVOKABLE void generateKey(const QString &name);
+    // type is "ed25519", "ecdsa" or "rsa". RSA takes a while, so keys are made off the UI thread.
+    Q_INVOKABLE void generateKey(const QString &name, const QString &type);
     Q_INVOKABLE void importKey(const QString &name, const QString &privateKey, const QString &passphrase);
     Q_INVOKABLE void removeKey(const QString &keyId);
+    // Emits privateKeyExported with the key in OpenSSH format, encrypted when a passphrase is given
+    Q_INVOKABLE void exportPrivateKey(const QString &keyId, const QString &passphrase);
 
 signals:
     void countChanged();
     void busyChanged();
     void errorStringChanged();
+    void privateKeyExported(const QString &keyId, const QString &privateKey);
 
 private:
     struct Key {
@@ -61,6 +65,7 @@ private:
     void setError(const QString &message);
 
     SecretVault *m_vault;
+    int m_generating;
     QSettings m_index;
     QList<Key> m_keys;
     QString m_errorString;

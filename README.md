@@ -3,10 +3,19 @@
 An SSH terminal for Sailfish OS.
 
 - Multiple connections at once, switchable from the app and visible on the cover
-- xterm-256color terminal (vim, top, tmux), pinch to zoom, copy and paste
-- Saved hosts, Ed25519 keys and remembered passwords kept in the Sailfish Secrets keychain
-- Reconnect dropped connections, recover from changed host keys
-- Color schemes: Default, Catppuccin Mocha, Dracula
+- xterm-256color terminal (vim, top, tmux), pinch to zoom, copy and paste, search
+  in the scrollback, links open in the browser, OSC 52 clipboard from the server
+- Configurable key toolbar with Ctrl, Alt, arrows, Home/End, PgUp/PgDn and F1-F12
+- Password, key and keyboard-interactive (one-time code) login
+- Saved hosts with jump hosts, local port forwards and agent forwarding,
+  importable and exportable as ssh_config
+- Ed25519, ECDSA and RSA keys and remembered passwords kept in the Sailfish
+  Secrets keychain, private keys exportable with a passphrase
+- Reconnects by itself when the network drops or changes, recovers from changed
+  host keys, known hosts can be reviewed and removed
+- Terminal bell vibrates, or notifies when the session is not on screen
+- Color schemes: Default, Catppuccin Mocha, Dracula, Gruvbox Dark, Nord,
+  Solarized Dark and Light
 
 Needs Sailfish OS 5.1 or newer, on aarch64 or armv7hl. The app is sandboxed
 and asks for the Internet and Secrets permissions on first start.

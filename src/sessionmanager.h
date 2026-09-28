@@ -4,9 +4,12 @@
 #include <QAbstractListModel>
 #include <QHash>
 #include <QList>
+#include <QNetworkConfigurationManager>
 #include <QSettings>
 
-class HostStore;
+#include "hoststore.h"
+
+class AppSettings;
 class SecretVault;
 class SshSession;
 
@@ -20,7 +23,7 @@ public:
         SessionRole = Qt::UserRole + 1
     };
 
-    SessionManager(SecretVault *vault, HostStore *hosts, QObject *parent = nullptr);
+    SessionManager(SecretVault *vault, HostStore *hosts, AppSettings *appSettings, QObject *parent = nullptr);
 
     int count() const { return m_sessions.size(); }
 
@@ -32,8 +35,10 @@ public:
     Q_INVOKABLE SshSession *openSession(const QString &name, const QString &host, int port,
                                         const QString &user, const QString &password,
                                         const QString &keyId);
-    // Uses the host's key or remembered password, returns null if it has neither
-    Q_INVOKABLE SshSession *openHost(const QString &hostId);
+    // Uses the host's key or remembered password, or else the given one, which
+    // may be empty when the server asks for everything itself. Returns null for
+    // an unknown host.
+    Q_INVOKABLE SshSession *openHost(const QString &hostId, const QString &password = QString());
     Q_INVOKABLE void closeSession(SshSession *session);
     Q_INVOKABLE int indexOf(SshSession *session) const { return m_sessions.indexOf(session); }
 
@@ -48,6 +53,10 @@ private:
     };
 
     SshSession *addSession(const QString &name, const QString &host, int port, const QString &user);
+    // Applies what a saved host adds to the plain connection
+    void configure(SshSession *session, const HostStore::Host &host);
+    void rememberPassword(SshSession *session, const QString &password);
+    void onNetworkChanged();
     void load();
     void save();
 
@@ -56,6 +65,10 @@ private:
     QList<SshSession *> m_sessions;
     QHash<const SshSession *, Origin> m_origins;
     QSettings m_settings;
+    AppSettings *m_appSettings;
+    QNetworkConfigurationManager m_network;
+    // The active network configurations last seen, to tell real changes from noise
+    QStringList m_activeNetworks;
 };
 
 #endif // SESSIONMANAGER_H

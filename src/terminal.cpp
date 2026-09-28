@@ -5,6 +5,8 @@
 #include <cstring>
 
 static const int MaxScrollbackLines = 5000;
+// Larger clipboard writes from the server are dropped
+static const int MaxClipboardBytes = 1024 * 1024;
 
 const VTermScreenCallbacks Terminal::s_screenCallbacks = {
     &Terminal::onDamage,
@@ -18,11 +20,17 @@ const VTermScreenCallbacks Terminal::s_screenCallbacks = {
     &Terminal::onClearScrollback,
 };
 
+const VTermSelectionCallbacks Terminal::s_selectionCallbacks = {
+    &Terminal::onSelectionSet,
+    nullptr, // query, the server is not allowed to read the clipboard
+};
+
 Terminal::Terminal(QObject *parent)
     : QObject(parent)
     , m_rows(24)
     , m_columns(80)
     , m_cursorVisible(true)
+    , m_clipboardTooLarge(false)
 {
     m_cursor.row = 0;
     m_cursor.col = 0;
@@ -43,6 +51,8 @@ Terminal::Terminal(QObject *parent)
     vterm_screen_enable_altscreen(m_screen, 1);
     vterm_screen_enable_reflow(m_screen, true);
     vterm_screen_reset(m_screen, 1);
+    // libvterm decodes the base64 into its own buffer in chunks of this size
+    vterm_state_set_selection_callbacks(vterm_obtain_state(m_vterm), &s_selectionCallbacks, this, nullptr, 4096);
 }
 
 Terminal::~Terminal()
@@ -230,5 +240,27 @@ int Terminal::onPopLine(int columns, VTermScreenCell *cells, void *user)
 int Terminal::onClearScrollback(void *user)
 {
     static_cast<Terminal *>(user)->m_scrollback.clear();
+    return 1;
+}
+
+int Terminal::onSelectionSet(VTermSelectionMask, VTermStringFragment fragment, void *user)
+{
+    Terminal *terminal = static_cast<Terminal *>(user);
+    if (fragment.initial) {
+        terminal->m_pendingClipboard.clear();
+        terminal->m_clipboardTooLarge = false;
+    }
+    if (terminal->m_pendingClipboard.size() + int(fragment.len) > MaxClipboardBytes) {
+        terminal->m_pendingClipboard.clear();
+        terminal->m_clipboardTooLarge = true;
+    }
+    if (!terminal->m_clipboardTooLarge)
+        terminal->m_pendingClipboard.append(fragment.str, int(fragment.len));
+    if (fragment.final) {
+        // Empty for invalid base64 as well as for clearing, neither should wipe the clipboard
+        if (!terminal->m_pendingClipboard.isEmpty())
+            emit terminal->clipboardRequested(QString::fromUtf8(terminal->m_pendingClipboard));
+        terminal->m_pendingClipboard.clear();
+    }
     return 1;
 }

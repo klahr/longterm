@@ -1,8 +1,10 @@
 #include "keystore.h"
 
+#include <QFutureWatcher>
 #include <QRegExp>
 #include <QStandardPaths>
 #include <QUuid>
+#include <QtConcurrent>
 
 #include <libssh/libssh.h>
 
@@ -13,6 +15,7 @@
 KeyStore::KeyStore(SecretVault *vault, QObject *parent)
     : QAbstractListModel(parent)
     , m_vault(vault)
+    , m_generating(0)
     // Only public data lives here, private keys are kept in Sailfish Secrets
     , m_index(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation)
               + QStringLiteral("/keys.conf"), QSettings::IniFormat)
@@ -23,7 +26,7 @@ KeyStore::KeyStore(SecretVault *vault, QObject *parent)
 
 bool KeyStore::busy() const
 {
-    return m_vault->busy();
+    return m_vault->busy() || m_generating > 0;
 }
 
 int KeyStore::rowCount(const QModelIndex &parent) const
@@ -85,15 +88,44 @@ QString KeyStore::validatePrivateKey(const QString &privateKey, const QString &p
     return QString();
 }
 
-void KeyStore::generateKey(const QString &name)
+void KeyStore::generateKey(const QString &name, const QString &type)
 {
-    ssh_key key = nullptr;
-    if (ssh_pki_generate_key(SSH_KEYTYPE_ED25519, nullptr, &key) != SSH_OK) {
-        setError(tr("Could not generate key"));
-        return;
-    }
-    addKey(name, key);
-    ssh_key_free(key);
+    enum ssh_keytypes_e keyType = SSH_KEYTYPE_ED25519;
+    if (type == QLatin1String("ecdsa"))
+        keyType = SSH_KEYTYPE_ECDSA_P256;
+    else if (type == QLatin1String("rsa"))
+        keyType = SSH_KEYTYPE_RSA;
+
+    ++m_generating;
+    emit busyChanged();
+    // The key crosses threads as a plain pointer, it is freed on this one
+    QFutureWatcher<ssh_key> *watcher = new QFutureWatcher<ssh_key>(this);
+    connect(watcher, &QFutureWatcher<ssh_key>::finished, this, [this, watcher, name]() {
+        ssh_key key = watcher->result();
+        watcher->deleteLater();
+        --m_generating;
+        emit busyChanged();
+        if (!key) {
+            setError(tr("Could not generate key"));
+            return;
+        }
+        addKey(name, key);
+        ssh_key_free(key);
+    });
+    watcher->setFuture(QtConcurrent::run([keyType]() -> ssh_key {
+        ssh_pki_ctx context = ssh_pki_ctx_new();
+        if (!context)
+            return nullptr;
+        // OpenSSH's default size
+        int bits = 3072;
+        ssh_key key = nullptr;
+        if ((keyType == SSH_KEYTYPE_RSA && ssh_pki_ctx_options_set(context, SSH_PKI_OPTION_RSA_KEY_SIZE, &bits) != SSH_OK)
+                || ssh_pki_generate_key(keyType, context, &key) != SSH_OK) {
+            key = nullptr;
+        }
+        ssh_pki_ctx_free(context);
+        return key;
+    }));
 }
 
 void KeyStore::importKey(const QString &name, const QString &privateKey, const QString &passphrase)
@@ -127,6 +159,33 @@ void KeyStore::removeKey(const QString &keyId)
     m_vault->remove(keyId, this, [this](const QString &error) {
         if (!error.isEmpty())
             setError(tr("Could not delete private key: %1").arg(error));
+    });
+}
+
+void KeyStore::exportPrivateKey(const QString &keyId, const QString &passphrase)
+{
+    m_vault->fetch(keyId, this, [this, keyId, passphrase](const QByteArray &secret, const QString &error) {
+        if (!error.isEmpty()) {
+            setError(tr("Could not read private key: %1").arg(error));
+            return;
+        }
+        ssh_key key = nullptr;
+        char *exported = nullptr;
+        const QByteArray passphraseData = passphrase.toUtf8();
+        const bool ok = ssh_pki_import_privkey_base64(secret.constData(), nullptr, nullptr, nullptr, &key) == SSH_OK
+                && ssh_pki_export_privkey_base64(key, passphrase.isEmpty() ? nullptr : passphraseData.constData(),
+                                                 nullptr, nullptr, &exported) == SSH_OK;
+        ssh_key_free(key);
+        if (!ok) {
+            ssh_string_free_char(exported);
+            setError(tr("Could not export key"));
+            return;
+        }
+        setError(QString());
+        const QString privateKey = QString::fromLatin1(exported);
+        std::fill(exported, exported + qstrlen(exported), '\0');
+        ssh_string_free_char(exported);
+        emit privateKeyExported(keyId, privateKey);
     });
 }
 

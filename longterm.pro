@@ -13,6 +13,7 @@
 TARGET = longterm
 
 CONFIG += sailfishapp
+QT += network concurrent
 PKGCONFIG += sailfishsecrets
 
 SOURCES += src/longterm.cpp \
@@ -20,8 +21,10 @@ SOURCES += src/longterm.cpp \
     src/colorschemes.cpp \
     src/hoststore.cpp \
     src/keystore.cpp \
+    src/knownhosts.cpp \
     src/secretvault.cpp \
     src/sessionmanager.cpp \
+    src/sshagent.cpp \
     src/sshsession.cpp \
     src/terminal.cpp \
     src/terminalview.cpp
@@ -30,8 +33,10 @@ HEADERS += src/appsettings.h \
     src/colorschemes.h \
     src/hoststore.h \
     src/keystore.h \
+    src/knownhosts.h \
     src/secretvault.h \
     src/sessionmanager.h \
+    src/sshagent.h \
     src/sshsession.h \
     src/terminal.h \
     src/terminalview.h
@@ -77,11 +82,17 @@ sshsession_libssh.target = sshsession.o
 sshsession_libssh.depends = $$libssh.target
 keystore_libssh.target = keystore.o
 keystore_libssh.depends = $$libssh.target
-QMAKE_EXTRA_TARGETS += libssh sshsession_libssh keystore_libssh
+knownhosts_libssh.target = knownhosts.o
+knownhosts_libssh.depends = $$libssh.target
+sshagent_libssh.target = sshagent.o
+sshagent_libssh.depends = $$libssh.target
+QMAKE_EXTRA_TARGETS += libssh sshsession_libssh keystore_libssh knownhosts_libssh sshagent_libssh
 PRE_TARGETDEPS += $$libssh.target
 
 INCLUDEPATH += $$LIBSSH_SRC/include $$LIBSSH_BUILD/include
 LIBS += -L$$LIBSSH_BUILD/lib -lssh
+# The forwarded agent signs with OpenSSL directly, libssh has no call for it
+PKGCONFIG += libcrypto
 QMAKE_RPATHDIR += /usr/share/$${TARGET}/lib
 
 libssh_install.path = /usr/share/$${TARGET}/lib
@@ -90,19 +101,25 @@ libssh_install.extra = mkdir -p $(INSTALL_ROOT)$$libssh_install.path && \
 INSTALLS += libssh_install
 
 DISTFILES += qml/longterm.qml \
+    qml/components/KeyButton.qml \
+    qml/components/Keys.js \
     qml/components/StatusDot.qml \
     qml/cover/CoverPage.qml \
     qml/pages/ColorSchemesPage.qml \
     qml/pages/EditSessionDialog.qml \
+    qml/pages/ExportKeyDialog.qml \
     qml/pages/GenerateKeyDialog.qml \
     qml/pages/HostPage.qml \
+    qml/pages/ImportHostsDialog.qml \
     qml/pages/ImportKeyDialog.qml \
     qml/pages/KeyPage.qml \
     qml/pages/KeysPage.qml \
+    qml/pages/KnownHostsPage.qml \
     qml/pages/SessionMenuPage.qml \
     qml/pages/SessionPage.qml \
     qml/pages/SessionsPage.qml \
     qml/pages/SettingsPage.qml \
+    qml/pages/ToolbarKeysPage.qml \
     rpm/longterm.changes \
     rpm/longterm.spec \
     translations/*.ts \
