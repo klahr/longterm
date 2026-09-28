@@ -1,6 +1,7 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
 import rs.r8.longterm 1.0
+import "../components"
 
 Page {
     id: page
@@ -108,12 +109,17 @@ Page {
                                 onClicked: sessionItem.session.reconnect()
                             }
                             MenuItem {
+                                visible: sessionItem.session.state !== SshSession.Disconnected
+                                text: qsTr("Disconnect")
+                                onClicked: sessionItem.session.disconnectFromHost()
+                            }
+                            MenuItem {
                                 text: qsTr("Edit")
                                 onClicked: pageStack.animatorPush(Qt.resolvedUrl("EditSessionDialog.qml"),
                                                                   { session: sessionItem.session })
                             }
                             MenuItem {
-                                text: qsTr("Close")
+                                text: qsTr("Remove")
                                 onClicked: {
                                     // The delegate and its context are gone by the time the remorse
                                     // timer fires, so capture everything the callback needs
@@ -135,14 +141,25 @@ Page {
                         x: Theme.horizontalPageMargin
                         width: parent.width - 2 * Theme.horizontalPageMargin
 
-                        Label {
+                        Row {
                             width: parent.width
-                            text: session.name.length > 0 ? session.name : session.user + "@" + session.host
-                            truncationMode: TruncationMode.Fade
-                            color: sessionItem.highlighted ? Theme.highlightColor : Theme.primaryColor
+                            spacing: Theme.paddingMedium
+
+                            StatusDot {
+                                anchors.verticalCenter: parent.verticalCenter
+                                session: sessionItem.session
+                            }
+
+                            Label {
+                                width: parent.width - Theme.paddingMedium - parent.spacing
+                                text: session.name.length > 0 ? session.name : session.user + "@" + session.host
+                                truncationMode: TruncationMode.Fade
+                                color: sessionItem.highlighted ? Theme.highlightColor : Theme.primaryColor
+                            }
                         }
                         Label {
-                            width: parent.width
+                            x: Theme.paddingMedium + Theme.paddingMedium
+                            width: parent.width - x
                             text: {
                                 switch (session.state) {
                                 case SshSession.Connecting: return qsTr("Connecting")

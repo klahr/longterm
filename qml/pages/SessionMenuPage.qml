@@ -84,6 +84,21 @@ Page {
             }
 
             BackgroundItem {
+                visible: session.state !== SshSession.Disconnected
+                onClicked: {
+                    page.session.disconnectFromHost()
+                    pageStack.pop()
+                }
+
+                Label {
+                    x: Theme.horizontalPageMargin
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Disconnect")
+                    color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                }
+            }
+
+            BackgroundItem {
                 onClicked: {
                     sessionManager.closeSession(page.session)
                     pageStack.pop(pageStack.previousPage(page.sessionPage))
@@ -92,7 +107,7 @@ Page {
                 Label {
                     x: Theme.horizontalPageMargin
                     anchors.verticalCenter: parent.verticalCenter
-                    text: qsTr("Close connection")
+                    text: qsTr("Remove")
                     color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
                 }
             }

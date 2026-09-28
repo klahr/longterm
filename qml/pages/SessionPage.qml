@@ -1,6 +1,7 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
 import rs.r8.longterm 1.0
+import "../components"
 
 Page {
     id: page
@@ -101,25 +102,38 @@ Page {
             width: sessionList.width
             height: sessionList.height
 
-            Label {
-                id: nameLabel
+            Item {
+                id: nameBar
 
-                x: Theme.pageStackIndicatorWidth
-                width: parent.width - 2 * Theme.pageStackIndicatorWidth
-                height: implicitHeight + Theme.paddingSmall
-                verticalAlignment: Text.AlignVCenter
-                horizontalAlignment: Text.AlignHCenter
-                truncationMode: TruncationMode.Fade
-                font.pixelSize: Theme.fontSizeExtraSmall
-                color: Theme.highlightColor
-                text: session.name.length > 0 ? session.name : session.user + "@" + session.host
+                width: parent.width
+                height: nameLabel.implicitHeight + Theme.paddingSmall
+
+                Row {
+                    anchors.centerIn: parent
+                    spacing: Theme.paddingSmall
+
+                    StatusDot {
+                        anchors.verticalCenter: parent.verticalCenter
+                        session: model.session
+                    }
+
+                    Label {
+                        id: nameLabel
+
+                        width: Math.min(implicitWidth, nameBar.width - 2 * Theme.pageStackIndicatorWidth)
+                        truncationMode: TruncationMode.Fade
+                        font.pixelSize: Theme.fontSizeExtraSmall
+                        color: Theme.highlightColor
+                        text: session.name.length > 0 ? session.name : session.user + "@" + session.host
+                    }
+                }
             }
 
             TerminalView {
                 id: terminalView
 
                 anchors {
-                    top: nameLabel.bottom
+                    top: nameBar.bottom
                     left: parent.left
                     right: parent.right
                     bottom: parent.bottom

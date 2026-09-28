@@ -90,6 +90,7 @@ libssh_install.extra = mkdir -p $(INSTALL_ROOT)$$libssh_install.path && \
 INSTALLS += libssh_install
 
 DISTFILES += qml/longterm.qml \
+    qml/components/StatusDot.qml \
     qml/cover/CoverPage.qml \
     qml/pages/ColorSchemesPage.qml \
     qml/pages/EditSessionDialog.qml \
