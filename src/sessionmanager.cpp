@@ -85,6 +85,7 @@ SshSession *SessionManager::addSession(const QString &name, const QString &host,
     QQmlEngine::setObjectOwnership(session, QQmlEngine::CppOwnership);
     connect(session, &SshSession::shellExited, this, [this, session]() { closeSession(session); });
     connect(session, &SshSession::nameChanged, this, &SessionManager::save);
+    connect(session, &SshSession::startupScriptChanged, this, &SessionManager::save);
 
     beginInsertRows(QModelIndex(), m_sessions.size(), m_sessions.size());
     m_sessions.append(session);
@@ -144,7 +145,10 @@ void SessionManager::load()
                                              m_settings.value(QStringLiteral("user")).toString());
             session->setSecret(m_vault, keyId, SshSession::PrivateKey);
             m_origins.insert(session, Origin { QString(), keyId });
+        } else {
+            continue;
         }
+        m_sessions.last()->setStartupScript(m_settings.value(QStringLiteral("startupScript")).toString());
     }
     m_settings.endArray();
 }
@@ -165,6 +169,7 @@ void SessionManager::save()
         m_settings.setValue(QStringLiteral("host"), session->host());
         m_settings.setValue(QStringLiteral("port"), session->port());
         m_settings.setValue(QStringLiteral("user"), session->user());
+        m_settings.setValue(QStringLiteral("startupScript"), session->startupScript());
     }
     m_settings.endArray();
     m_settings.sync();

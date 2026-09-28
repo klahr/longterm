@@ -58,12 +58,12 @@ Page {
             }
 
             BackgroundItem {
-                onClicked: pageStack.animatorReplace(Qt.resolvedUrl("RenameSessionDialog.qml"), { session: page.session })
+                onClicked: pageStack.animatorReplace(Qt.resolvedUrl("EditSessionDialog.qml"), { session: page.session })
 
                 Label {
                     x: Theme.horizontalPageMargin
                     anchors.verticalCenter: parent.verticalCenter
-                    text: qsTr("Rename")
+                    text: qsTr("Edit session")
                     color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
                 }
             }

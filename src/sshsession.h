@@ -13,6 +13,8 @@ class SshSession : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QString name READ name WRITE setName NOTIFY nameChanged)
+    // Typed into the shell each time it starts
+    Q_PROPERTY(QString startupScript READ startupScript WRITE setStartupScript NOTIFY startupScriptChanged)
     Q_PROPERTY(QString host READ host CONSTANT)
     Q_PROPERTY(int port READ port CONSTANT)
     Q_PROPERTY(QString user READ user CONSTANT)
@@ -41,6 +43,8 @@ public:
 
     QString name() const { return m_name; }
     void setName(const QString &name);
+    QString startupScript() const { return m_startupScript; }
+    void setStartupScript(const QString &script);
     QString host() const { return m_host; }
     int port() const { return m_port; }
     QString user() const { return m_user; }
@@ -62,6 +66,7 @@ public:
 
 signals:
     void nameChanged();
+    void startupScriptChanged();
     void stateChanged();
     void errorStringChanged();
     // The remote shell exited normally, as opposed to the connection failing
@@ -85,6 +90,7 @@ private:
     void stopWorker();
 
     QString m_name;
+    QString m_startupScript;
     const QString m_host;
     const int m_port;
     const QString m_user;

@@ -92,12 +92,12 @@ INSTALLS += libssh_install
 DISTFILES += qml/longterm.qml \
     qml/cover/CoverPage.qml \
     qml/pages/ColorSchemesPage.qml \
+    qml/pages/EditSessionDialog.qml \
     qml/pages/GenerateKeyDialog.qml \
     qml/pages/HostPage.qml \
     qml/pages/ImportKeyDialog.qml \
     qml/pages/KeyPage.qml \
     qml/pages/KeysPage.qml \
-    qml/pages/RenameSessionDialog.qml \
     qml/pages/SessionMenuPage.qml \
     qml/pages/SessionPage.qml \
     qml/pages/SessionsPage.qml \

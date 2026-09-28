@@ -490,6 +490,9 @@ void SshSession::disconnectFromHost()
 void SshSession::onWorkerConnected()
 {
     setState(Connected);
+    const QString script = m_startupScript.trimmed();
+    if (!script.isEmpty())
+        m_worker->write(QString(script + QLatin1Char('\n')).replace(QLatin1Char('\n'), QLatin1Char('\r')).toUtf8());
 }
 
 void SshSession::onWorkerData(const QByteArray &data)
@@ -528,6 +531,14 @@ void SshSession::setName(const QString &name)
         return;
     m_name = name;
     emit nameChanged();
+}
+
+void SshSession::setStartupScript(const QString &script)
+{
+    if (m_startupScript == script)
+        return;
+    m_startupScript = script;
+    emit startupScriptChanged();
 }
 
 void SshSession::setState(State state)

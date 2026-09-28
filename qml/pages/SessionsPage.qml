@@ -108,8 +108,8 @@ Page {
                                 onClicked: sessionItem.session.reconnect()
                             }
                             MenuItem {
-                                text: qsTr("Rename")
-                                onClicked: pageStack.animatorPush(Qt.resolvedUrl("RenameSessionDialog.qml"),
+                                text: qsTr("Edit")
+                                onClicked: pageStack.animatorPush(Qt.resolvedUrl("EditSessionDialog.qml"),
                                                                   { session: sessionItem.session })
                             }
                             MenuItem {
