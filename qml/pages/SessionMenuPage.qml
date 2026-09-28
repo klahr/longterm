@@ -11,10 +11,9 @@ Page {
 
     allowedOrientations: Orientation.All
 
-    // Replaces the session page itself, so going back leads to the start page
     function switchTo(otherSession) {
-        pageStack.pop(sessionPage, PageStackAction.Immediate)
-        pageStack.replace(Qt.resolvedUrl("SessionPage.qml"), { session: otherSession }, PageStackAction.Immediate)
+        sessionPage.showSession(otherSession)
+        pageStack.pop()
     }
 
     SilicaFlickable {
@@ -69,6 +68,17 @@ Page {
                     x: Theme.horizontalPageMargin
                     anchors.verticalCenter: parent.verticalCenter
                     text: qsTr("Reconnect")
+                    color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                }
+            }
+
+            BackgroundItem {
+                onClicked: pageStack.pop(pageStack.previousPage(page.sessionPage))
+
+                Label {
+                    x: Theme.horizontalPageMargin
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Connections")
                     color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
                 }
             }

@@ -33,6 +33,7 @@ public:
     // Uses the host's key or remembered password, returns null if it has neither
     Q_INVOKABLE SshSession *openHost(const QString &hostId);
     Q_INVOKABLE void closeSession(SshSession *session);
+    Q_INVOKABLE int indexOf(SshSession *session) const { return m_sessions.indexOf(session); }
 
 signals:
     void countChanged();

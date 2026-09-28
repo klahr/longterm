@@ -6,23 +6,39 @@ Page {
     id: page
 
     property var session
+    readonly property Item currentView: sessionList.currentItem ? sessionList.currentItem.terminalView : null
 
     function showKeyboard() {
-        terminalView.forceActiveFocus()
+        if (!currentView)
+            return
+        currentView.forceActiveFocus()
         Qt.inputMethod.show()
     }
 
+    function showSession(otherSession) {
+        var index = sessionManager.indexOf(otherSession)
+        if (index < 0)
+            return
+        sessionList.currentIndex = index
+        sessionList.positionViewAtIndex(index, ListView.Beginning)
+    }
+
     allowedOrientations: Orientation.All
+    // With several sessions the swipe switches between them, and going back is a swipe past the first
+    backNavigation: !sessionList.interactive
 
     onStatusChanged: {
         if (status === PageStatus.Active)
             showKeyboard()
     }
 
-    // The session is removed when its shell exits, so leave before it goes away
+    // The session is removed when its shell exits, so leave once none are left to show
     Connections {
         target: session
-        onShellExited: pageStack.pop(pageStack.previousPage(page))
+        onShellExited: {
+            if (sessionManager.count === 0)
+                pageStack.pop(pageStack.previousPage(page))
+        }
     }
 
     // Keep the keyboard open while the session is on screen
@@ -43,8 +59,11 @@ Page {
         }
     }
 
-    TerminalView {
-        id: terminalView
+    ListView {
+        id: sessionList
+
+        readonly property real backThreshold: width / 5
+        property bool positioned
 
         anchors {
             top: parent.top
@@ -56,178 +75,217 @@ Page {
             leftMargin: page.orientation === Orientation.Landscape ? Screen.topCutout.height : 0
             rightMargin: page.orientation === Orientation.LandscapeInverted ? Screen.topCutout.height : 0
         }
-        terminal: session.terminal
-        fontFamily: terminalFontFamily
-        fontPixelSize: appSettings.terminalFontSize > 0 ? appSettings.terminalFontSize : Theme.fontSizeExtraSmall
-        colorScheme: appSettings.terminalColorScheme
+        clip: true
+        orientation: ListView.Horizontal
+        snapMode: ListView.SnapOneItem
+        highlightRangeMode: ListView.StrictlyEnforceRange
+        cacheBuffer: width
+        interactive: count > 1
+        model: sessionManager
 
-        PinchArea {
-            property int startSize
+        // The first item becomes current before the pushed session can be shown
+        Component.onCompleted: {
+            page.showSession(page.session)
+            positioned = true
+        }
+        onCurrentItemChanged: {
+            if (!positioned || !currentItem)
+                return
+            page.session = currentItem.session
+            if (page.status === PageStatus.Active)
+                page.showKeyboard()
+        }
+        // Pulling the first session to the right leads back to the start page
+        onDraggingChanged: {
+            if (!dragging && contentX - originX < -backThreshold)
+                pageStack.navigateBack()
+        }
 
-            anchors.fill: parent
-            onPinchStarted: startSize = terminalView.fontPixelSize
-            onPinchUpdated: {
-                var size = Math.round(startSize * pinch.scale)
-                appSettings.terminalFontSize = Math.max(Theme.fontSizeTiny / 2, Math.min(Theme.fontSizeHuge, size))
-            }
+        delegate: Item {
+            readonly property var session: model.session
+            readonly property alias terminalView: terminalView
 
-            MouseArea {
-                property real startY
-                property int startOffset
-                property bool dragged
-                property bool selecting
+            width: sessionList.width
+            height: sessionList.height
+
+            TerminalView {
+                id: terminalView
 
                 anchors.fill: parent
-                // Keep the page from taking a selection drag as a back swipe
-                preventStealing: selecting
-                onPressed: {
-                    startY = mouse.y
-                    startOffset = terminalView.scrollOffset
-                    dragged = false
-                }
-                onPressAndHold: {
-                    if (dragged)
-                        return
-                    selecting = true
-                    terminalView.startSelection(mouse.x, mouse.y)
-                }
-                onPositionChanged: {
-                    if (selecting) {
-                        terminalView.updateSelection(mouse.x, mouse.y)
-                        return
+                terminal: session.terminal
+                fontFamily: terminalFontFamily
+                fontPixelSize: appSettings.terminalFontSize > 0 ? appSettings.terminalFontSize : Theme.fontSizeExtraSmall
+                colorScheme: appSettings.terminalColorScheme
+
+                PinchArea {
+                    property int startSize
+
+                    anchors.fill: parent
+                    onPinchStarted: startSize = terminalView.fontPixelSize
+                    onPinchUpdated: {
+                        var size = Math.round(startSize * pinch.scale)
+                        appSettings.terminalFontSize = Math.max(Theme.fontSizeTiny / 2, Math.min(Theme.fontSizeHuge, size))
                     }
-                    var lines = Math.round((mouse.y - startY) / terminalView.cellHeight)
-                    if (lines !== 0)
-                        dragged = true
-                    terminalView.scrollOffset = startOffset + lines
-                }
-                onDoubleClicked: terminalView.selectWordAt(mouse.x, mouse.y)
-                onReleased: selecting = false
-                onCanceled: selecting = false
-                onClicked: {
-                    if (dragged)
-                        return
-                    if (terminalView.hasSelection) {
-                        terminalView.clearSelection()
-                        return
-                    }
-                    terminalView.forceActiveFocus()
-                    Qt.inputMethod.show()
-                }
-            }
-        }
 
-        Rectangle {
-            id: statusOverlay
+                    MouseArea {
+                        property real startY
+                        property int startOffset
+                        property bool dragged
+                        property bool selecting
 
-            readonly property string status: {
-                switch (session.state) {
-                case SshSession.Connecting: return qsTr("Connecting")
-                case SshSession.Connected: return ""
-                default: return session.errorString.length > 0 ? session.errorString : qsTr("Disconnected")
-                }
-            }
-            readonly property bool canReconnect: session.state === SshSession.Disconnected
-
-            anchors {
-                top: parent.top
-                horizontalCenter: parent.horizontalCenter
-                margins: Theme.paddingSmall
-            }
-            width: canReconnect ? parent.width - 2 * Theme.paddingLarge
-                                : Math.min(statusLabel.implicitWidth + 2 * Theme.paddingMedium,
-                                           parent.width - 2 * Theme.paddingSmall)
-            height: statusColumn.height + 2 * Theme.paddingSmall
-            radius: Theme.paddingSmall
-            color: Theme.rgba(Theme.highlightDimmerColor, 0.9)
-            visible: status.length > 0 && !terminalView.hasSelection
-
-            Column {
-                id: statusColumn
-
-                x: Theme.paddingMedium
-                y: Theme.paddingSmall
-                width: parent.width - 2 * Theme.paddingMedium
-                spacing: Theme.paddingSmall
-
-                Label {
-                    id: statusLabel
-                    width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    wrapMode: statusOverlay.canReconnect ? Text.Wrap : Text.NoWrap
-                    truncationMode: statusOverlay.canReconnect ? TruncationMode.None : TruncationMode.Fade
-                    font.pixelSize: Theme.fontSizeSmall
-                    color: Theme.highlightColor
-                    text: statusOverlay.status
-                }
-
-                Label {
-                    width: parent.width
-                    visible: session.hostKeyMismatch
-                    horizontalAlignment: Text.AlignHCenter
-                    wrapMode: Text.WrapAnywhere
-                    font.pixelSize: Theme.fontSizeExtraSmall
-                    color: Theme.secondaryHighlightColor
-                    text: qsTr("The server's key is not the one saved earlier. Only trust it if you know "
-                               + "the server was reinstalled or its keys changed. New key: %1")
-                          .arg(session.serverFingerprint)
-                }
-
-                Button {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    visible: statusOverlay.canReconnect
-                    text: session.hostKeyMismatch ? qsTr("Trust new key") : qsTr("Reconnect")
-                    onClicked: {
-                        if (session.hostKeyMismatch)
-                            session.trustNewHostKey()
-                        else
-                            session.reconnect()
-                    }
-                }
-            }
-        }
-
-        Rectangle {
-            anchors {
-                top: parent.top
-                right: parent.right
-                margins: Theme.paddingSmall
-            }
-            width: selectionActions.width
-            height: selectionActions.height
-            radius: Theme.paddingSmall
-            color: Theme.rgba(Theme.highlightDimmerColor, 0.9)
-            visible: terminalView.hasSelection
-
-            Row {
-                id: selectionActions
-
-                Repeater {
-                    model: [
-                        { label: qsTr("Copy"), action: "copy" },
-                        { label: qsTr("Paste"), action: "paste" },
-                        { label: qsTr("Clear"), action: "clear" }
-                    ]
-
-                    BackgroundItem {
-                        width: actionLabel.width + 2 * Theme.paddingLarge
-                        height: Theme.itemSizeExtraSmall
-                        onClicked: {
-                            if (modelData.action === "copy") {
-                                Clipboard.text = terminalView.selectedText()
-                                terminalView.clearSelection()
-                            } else if (modelData.action === "paste") {
-                                terminalView.paste(Clipboard.text)
-                            } else {
-                                terminalView.clearSelection()
+                        anchors.fill: parent
+                        // Keep the page from taking a selection drag as a back swipe
+                        preventStealing: selecting
+                        onPressed: {
+                            startY = mouse.y
+                            startOffset = terminalView.scrollOffset
+                            dragged = false
+                        }
+                        onPressAndHold: {
+                            if (dragged)
+                                return
+                            selecting = true
+                            terminalView.startSelection(mouse.x, mouse.y)
+                        }
+                        onPositionChanged: {
+                            if (selecting) {
+                                terminalView.updateSelection(mouse.x, mouse.y)
+                                return
                             }
+                            var lines = Math.round((mouse.y - startY) / terminalView.cellHeight)
+                            if (lines !== 0)
+                                dragged = true
+                            terminalView.scrollOffset = startOffset + lines
+                        }
+                        onDoubleClicked: terminalView.selectWordAt(mouse.x, mouse.y)
+                        onReleased: selecting = false
+                        onCanceled: selecting = false
+                        onClicked: {
+                            if (dragged)
+                                return
+                            if (terminalView.hasSelection) {
+                                terminalView.clearSelection()
+                                return
+                            }
+                            terminalView.forceActiveFocus()
+                            Qt.inputMethod.show()
+                        }
+                    }
+                }
+
+                Rectangle {
+                    id: statusOverlay
+
+                    readonly property string status: {
+                        switch (session.state) {
+                        case SshSession.Connecting: return qsTr("Connecting")
+                        case SshSession.Connected: return ""
+                        default: return session.errorString.length > 0 ? session.errorString : qsTr("Disconnected")
+                        }
+                    }
+                    readonly property bool canReconnect: session.state === SshSession.Disconnected
+
+                    anchors {
+                        top: parent.top
+                        horizontalCenter: parent.horizontalCenter
+                        margins: Theme.paddingSmall
+                    }
+                    width: canReconnect ? parent.width - 2 * Theme.paddingLarge
+                                        : Math.min(statusLabel.implicitWidth + 2 * Theme.paddingMedium,
+                                                   parent.width - 2 * Theme.paddingSmall)
+                    height: statusColumn.height + 2 * Theme.paddingSmall
+                    radius: Theme.paddingSmall
+                    color: Theme.rgba(Theme.highlightDimmerColor, 0.9)
+                    visible: status.length > 0 && !terminalView.hasSelection
+
+                    Column {
+                        id: statusColumn
+
+                        x: Theme.paddingMedium
+                        y: Theme.paddingSmall
+                        width: parent.width - 2 * Theme.paddingMedium
+                        spacing: Theme.paddingSmall
+
+                        Label {
+                            id: statusLabel
+                            width: parent.width
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: statusOverlay.canReconnect ? Text.Wrap : Text.NoWrap
+                            truncationMode: statusOverlay.canReconnect ? TruncationMode.None : TruncationMode.Fade
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.highlightColor
+                            text: statusOverlay.status
                         }
 
                         Label {
-                            id: actionLabel
-                            anchors.centerIn: parent
-                            text: modelData.label
-                            color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                            width: parent.width
+                            visible: session.hostKeyMismatch
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.WrapAnywhere
+                            font.pixelSize: Theme.fontSizeExtraSmall
+                            color: Theme.secondaryHighlightColor
+                            text: qsTr("The server's key is not the one saved earlier. Only trust it if you know "
+                                       + "the server was reinstalled or its keys changed. New key: %1")
+                                  .arg(session.serverFingerprint)
+                        }
+
+                        Button {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            visible: statusOverlay.canReconnect
+                            text: session.hostKeyMismatch ? qsTr("Trust new key") : qsTr("Reconnect")
+                            onClicked: {
+                                if (session.hostKeyMismatch)
+                                    session.trustNewHostKey()
+                                else
+                                    session.reconnect()
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    anchors {
+                        top: parent.top
+                        right: parent.right
+                        margins: Theme.paddingSmall
+                    }
+                    width: selectionActions.width
+                    height: selectionActions.height
+                    radius: Theme.paddingSmall
+                    color: Theme.rgba(Theme.highlightDimmerColor, 0.9)
+                    visible: terminalView.hasSelection
+
+                    Row {
+                        id: selectionActions
+
+                        Repeater {
+                            model: [
+                                { label: qsTr("Copy"), action: "copy" },
+                                { label: qsTr("Paste"), action: "paste" },
+                                { label: qsTr("Clear"), action: "clear" }
+                            ]
+
+                            BackgroundItem {
+                                width: actionLabel.width + 2 * Theme.paddingLarge
+                                height: Theme.itemSizeExtraSmall
+                                onClicked: {
+                                    if (modelData.action === "copy") {
+                                        Clipboard.text = terminalView.selectedText()
+                                        terminalView.clearSelection()
+                                    } else if (modelData.action === "paste") {
+                                        terminalView.paste(Clipboard.text)
+                                    } else {
+                                        terminalView.clearSelection()
+                                    }
+                                }
+
+                                Label {
+                                    id: actionLabel
+                                    anchors.centerIn: parent
+                                    text: modelData.label
+                                    color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                                }
+                            }
                         }
                     }
                 }
@@ -262,21 +320,24 @@ Page {
             model: keyBar.keys
 
             BackgroundItem {
-                readonly property bool latched: modelData.modifier === "ctrl" && terminalView.ctrlLatched
+                readonly property bool latched: modelData.modifier === "ctrl" && page.currentView !== null && page.currentView.ctrlLatched
 
                 width: keyBar.width / keyBar.keys.length
                 height: Theme.itemSizeExtraSmall
                 highlighted: down || latched
                 onClicked: {
+                    var view = page.currentView
+                    if (!view)
+                        return
                     if (modelData.modifier === "ctrl")
-                        terminalView.ctrlLatched = !terminalView.ctrlLatched
+                        view.ctrlLatched = !view.ctrlLatched
                     else if (modelData.action === "menu")
                         pageStack.animatorPush(Qt.resolvedUrl("SessionMenuPage.qml"),
-                                               { session: page.session, sessionPage: page, terminalView: terminalView })
+                                               { session: page.session, sessionPage: page, terminalView: view })
                     else if (modelData.key !== undefined)
-                        terminalView.sendKey(modelData.key)
+                        view.sendKey(modelData.key)
                     else
-                        terminalView.sendText(modelData.text)
+                        view.sendText(modelData.text)
                 }
 
                 Label {
