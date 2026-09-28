@@ -91,6 +91,17 @@ Page {
         }
     }
 
+    // Fills the display notch margin and the name bar in the session's colors
+    Rectangle {
+        anchors {
+            top: parent.top
+            left: parent.left
+            right: parent.right
+            bottom: searchBar.top
+        }
+        color: sessionList.currentItem ? colorSchemes.background(sessionList.currentItem.schemeId) : "transparent"
+    }
+
     ListView {
         id: sessionList
 
@@ -108,6 +119,9 @@ Page {
         orientation: ListView.Horizontal
         snapMode: ListView.SnapOneItem
         highlightRangeMode: ListView.StrictlyEnforceRange
+        // The default speed takes seconds for a full-width page when the indicators switch sessions
+        highlightMoveDuration: 250
+        highlightMoveVelocity: -1
         cacheBuffer: width
         interactive: count > 1
         // Not pulling past the first session leaves that swipe to the page stack for going back
@@ -123,16 +137,20 @@ Page {
             id: delegateItem
 
             readonly property var session: model.session
+            readonly property string schemeId: session.colorScheme.length > 0 ? session.colorScheme
+                                                                              : appSettings.terminalColorScheme
             readonly property alias terminalView: terminalView
 
             width: sessionList.width
             height: sessionList.height
 
-            Item {
+            Rectangle {
                 id: nameBar
 
                 width: parent.width
                 height: nameLabel.implicitHeight + Theme.paddingSmall
+                // Swiping between sessions shows each bar in its own scheme
+                color: colorSchemes.background(delegateItem.schemeId)
 
                 Row {
                     anchors.centerIn: parent
@@ -149,7 +167,7 @@ Page {
                         width: Math.min(implicitWidth, nameBar.width - 2 * Theme.pageStackIndicatorWidth)
                         truncationMode: TruncationMode.Fade
                         font.pixelSize: Theme.fontSizeExtraSmall
-                        color: Theme.highlightColor
+                        color: colorSchemes.foreground(delegateItem.schemeId)
                         text: session.name.length > 0 ? session.name : session.user + "@" + session.host
                     }
                 }
@@ -167,7 +185,7 @@ Page {
                 terminal: session.terminal
                 fontFamily: terminalFontFamily
                 fontPixelSize: appSettings.terminalFontSize > 0 ? appSettings.terminalFontSize : Theme.fontSizeExtraSmall
-                colorScheme: session.colorScheme.length > 0 ? session.colorScheme : appSettings.terminalColorScheme
+                colorScheme: delegateItem.schemeId
 
                 PinchArea {
                     property int startSize

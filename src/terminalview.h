@@ -22,6 +22,9 @@ class TerminalView : public QQuickPaintedItem
     Q_PROPERTY(QColor selectionColor READ selectionColor WRITE setSelectionColor NOTIFY selectionColorChanged)
     Q_PROPERTY(bool hasSelection READ hasSelection NOTIFY selectionChanged)
     Q_PROPERTY(QString colorScheme READ colorScheme WRITE setColorScheme NOTIFY colorSchemeChanged)
+    // Draws the terminal scaled down to fit, never resizing it or taking input
+    Q_PROPERTY(bool preview READ preview WRITE setPreview NOTIFY previewChanged)
+    Q_PROPERTY(qreal radius READ radius WRITE setRadius NOTIFY radiusChanged)
 
 public:
     explicit TerminalView(QQuickItem *parent = nullptr);
@@ -46,6 +49,10 @@ public:
     bool hasSelection() const { return m_hasSelection; }
     QString colorScheme() const { return m_colorScheme; }
     void setColorScheme(const QString &colorScheme);
+    bool preview() const { return m_preview; }
+    void setPreview(bool preview);
+    qreal radius() const { return m_radius; }
+    void setRadius(qreal radius);
 
     // For on-screen extra keys, takes Qt::Key values
     Q_INVOKABLE void sendKey(int key);
@@ -77,6 +84,8 @@ signals:
     void selectionColorChanged();
     void selectionChanged();
     void colorSchemeChanged();
+    void previewChanged();
+    void radiusChanged();
 
 protected:
     void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
@@ -114,6 +123,8 @@ private:
     int m_endLine;
     int m_endColumn;
     QString m_colorScheme;
+    bool m_preview;
+    qreal m_radius;
 };
 
 #endif // TERMINALVIEW_H

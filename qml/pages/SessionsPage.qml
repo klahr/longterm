@@ -136,7 +136,7 @@ Page {
                     Column {
                         anchors.verticalCenter: parent.verticalCenter
                         x: Theme.horizontalPageMargin
-                        width: parent.width - 2 * Theme.horizontalPageMargin
+                        width: thumbnail.x - x - Theme.paddingMedium
 
                         Row {
                             width: parent.width
@@ -168,6 +168,28 @@ Page {
                             font.pixelSize: Theme.fontSizeExtraSmall
                             color: sessionItem.highlighted ? Theme.secondaryHighlightColor : Theme.secondaryColor
                         }
+                    }
+
+                    // What the session shows right now, in miniature
+                    TerminalView {
+                        id: thumbnail
+
+                        anchors {
+                            right: parent.right
+                            rightMargin: Theme.horizontalPageMargin
+                            verticalCenter: parent.verticalCenter
+                        }
+                        height: sessionItem.contentHeight - 2 * Theme.paddingSmall
+                        // Shaped like the device held upright, as the session is usually seen
+                        width: Math.round(height * Math.min(Screen.width, Screen.height) / Math.max(Screen.width, Screen.height))
+                        preview: true
+                        radius: Theme.paddingSmall
+                        terminal: sessionItem.session.terminal
+                        fontFamily: terminalFontFamily
+                        fontPixelSize: appSettings.terminalFontSize > 0 ? appSettings.terminalFontSize : Theme.fontSizeExtraSmall
+                        colorScheme: sessionItem.session.colorScheme.length > 0 ? sessionItem.session.colorScheme
+                                                                                : appSettings.terminalColorScheme
+                        opacity: sessionItem.session.state === SshSession.Connected ? 1.0 : 0.5
                     }
                 }
             }

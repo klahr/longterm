@@ -6,6 +6,7 @@
 #include <QInputMethodEvent>
 #include <QKeyEvent>
 #include <QPainter>
+#include <QPainterPath>
 #include <QRegExp>
 #include <QStringList>
 
@@ -98,6 +99,8 @@ TerminalView::TerminalView(QQuickItem *parent)
     , m_anchorColumn(0)
     , m_endLine(0)
     , m_endColumn(0)
+    , m_preview(false)
+    , m_radius(0)
 {
     setFlag(ItemAcceptsInputMethod, true);
     setFlag(ItemIsFocusScope, false);
@@ -200,6 +203,30 @@ void TerminalView::setColorScheme(const QString &colorScheme)
     m_colorScheme = colorScheme;
     applyColorScheme();
     emit colorSchemeChanged();
+}
+
+void TerminalView::setPreview(bool preview)
+{
+    if (m_preview == preview)
+        return;
+    m_preview = preview;
+    setFlag(ItemAcceptsInputMethod, !preview);
+    clearSelection();
+    setScrollOffset(0);
+    updateTerminalSize();
+    update();
+    emit previewChanged();
+}
+
+void TerminalView::setRadius(qreal radius)
+{
+    if (qFuzzyCompare(m_radius, radius))
+        return;
+    m_radius = radius;
+    // The corners outside the rounding show what is behind
+    setOpaquePainting(radius <= 0);
+    update();
+    emit radiusChanged();
 }
 
 void TerminalView::sendKey(int key)
@@ -389,10 +416,28 @@ void TerminalView::paint(QPainter *painter)
         return;
     }
 
-    painter->fillRect(boundingRect(), m_terminal->color(m_terminal->blankCell().bg));
+    const QColor background = m_terminal->color(m_terminal->blankCell().bg);
+    if (m_radius > 0) {
+        // Clipping is not antialiased, so the smooth edge comes from the background
+        QPainterPath rounded;
+        rounded.addRoundedRect(boundingRect(), m_radius, m_radius);
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing);
+        painter->fillPath(rounded, background);
+        painter->restore();
+        painter->setClipPath(rounded);
+    } else {
+        painter->fillRect(boundingRect(), background);
+    }
 
     const int rows = m_terminal->rows();
     const int columns = m_terminal->columns();
+    if (m_preview) {
+        // Centered, keeping the terminal's own proportions
+        const qreal scale = qMin(width() / (columns * m_cellWidth), height() / (rows * m_cellHeight));
+        painter->translate((width() - columns * m_cellWidth * scale) / 2, (height() - rows * m_cellHeight * scale) / 2);
+        painter->scale(scale, scale);
+    }
 
     for (int row = 0; row < rows; ++row) {
         const int terminalRow = row - m_scrollOffset;
@@ -531,7 +576,8 @@ void TerminalView::inputMethodEvent(QInputMethodEvent *event)
 
 void TerminalView::updateTerminalSize()
 {
-    if (!m_terminal || width() <= 0 || height() <= 0)
+    // The session's own view decides the size
+    if (!m_terminal || m_preview || width() <= 0 || height() <= 0)
         return;
     m_terminal->resize(qMax(1, int(height() / m_cellHeight)), qMax(1, int(width() / m_cellWidth)));
 }

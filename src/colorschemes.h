@@ -35,6 +35,8 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     Q_INVOKABLE QString name(const QString &id) const;
+    Q_INVOKABLE QColor foreground(const QString &id) const;
+    Q_INVOKABLE QColor background(const QString &id) const;
 
     // Falls back to the default scheme for unknown ids
     static const ColorScheme &find(const QString &id);

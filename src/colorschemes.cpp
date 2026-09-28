@@ -116,6 +116,16 @@ QString ColorSchemes::name(const QString &id) const
     return QString::fromLatin1(find(id).name);
 }
 
+QColor ColorSchemes::foreground(const QString &id) const
+{
+    return QColor(find(id).foreground);
+}
+
+QColor ColorSchemes::background(const QString &id) const
+{
+    return QColor(find(id).background);
+}
+
 const ColorScheme &ColorSchemes::find(const QString &id)
 {
     for (const ColorScheme &scheme : schemes) {
