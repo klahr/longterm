@@ -53,6 +53,10 @@ Page {
 
         PullDownMenu {
             MenuItem {
+                text: qsTr("About")
+                onClicked: pageStack.animatorPush(Qt.resolvedUrl("AboutPage.qml"))
+            }
+            MenuItem {
                 text: qsTr("Settings")
                 onClicked: pageStack.animatorPush(Qt.resolvedUrl("SettingsPage.qml"))
             }
@@ -133,9 +137,16 @@ Page {
                         page.showSession(session)
                     }
 
+                    SystemIcon {
+                        id: sessionIcon
+                        x: Theme.horizontalPageMargin
+                        anchors.verticalCenter: parent.verticalCenter
+                        systemId: sessionItem.session.systemId
+                    }
+
                     Column {
                         anchors.verticalCenter: parent.verticalCenter
-                        x: Theme.horizontalPageMargin
+                        x: sessionIcon.x + sessionIcon.width + Theme.paddingMedium
                         width: thumbnail.x - x - Theme.paddingMedium
 
                         Row {
@@ -226,10 +237,17 @@ Page {
                     }
                     onClicked: page.connectToHost(model.hostId)
 
+                    SystemIcon {
+                        id: hostIcon
+                        x: Theme.horizontalPageMargin
+                        anchors.verticalCenter: parent.verticalCenter
+                        systemId: model.systemId
+                    }
+
                     Column {
                         anchors.verticalCenter: parent.verticalCenter
-                        x: Theme.horizontalPageMargin
-                        width: parent.width - 2 * Theme.horizontalPageMargin
+                        x: hostIcon.x + hostIcon.width + Theme.paddingMedium
+                        width: parent.width - x - Theme.horizontalPageMargin
 
                         Label {
                             width: parent.width

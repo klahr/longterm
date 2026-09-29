@@ -5,10 +5,12 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
-#include <QSaveFile>
+#include <QHash>
 #include <QHostAddress>
 #include <QMutex>
 #include <QNetworkInterface>
+#include <QRegExp>
+#include <QSaveFile>
 #include <QStandardPaths>
 #include <QThread>
 #include <QVector>
@@ -52,6 +54,94 @@ static const unsigned int UserTimeoutMs = 30 * 1000;
 // from dropping the connection
 static const int KeepAliveIntervalMs = 60 * 1000;
 static const int StopWaitMs = 500;
+static const char SystemProbeCommand[] = "uname -sr; cat /etc/os-release";
+static const int SystemProbeTimeoutMs = 10 * 1000;
+static const int MaxSystemProbeOutput = 16 * 1024;
+
+static QString cleanSystemId(const QString &id)
+{
+    return id.toLower().replace(QRegExp(QStringLiteral("[^a-z0-9._ -]")), QString()).simplified().left(64);
+}
+
+static QString cleanSystemName(const QString &name)
+{
+    return QString(name).replace(QRegExp(QStringLiteral("[\\x0000-\\x001f\\x007f]")), QStringLiteral(" "))
+            .simplified().left(64);
+}
+
+static bool guessSystem(const QByteArray &banner, QString *id, QString *name)
+{
+    struct Pattern {
+        const char *text;
+        const char *id;
+        const char *name;
+    };
+    static const Pattern patterns[] = {
+        { "Ubuntu", "ubuntu", "Ubuntu" },
+        { "Raspbian", "raspbian", "Raspbian" },
+        { "Debian", "debian", "Debian" },
+        { "FreeBSD", "freebsd", "FreeBSD" },
+        { "NetBSD", "netbsd", "NetBSD" },
+        { "for_Windows", "windows", "Windows" },
+        { "ROSSSH", "routeros", "RouterOS" },
+    };
+    for (const Pattern &pattern : patterns) {
+        if (!banner.contains(pattern.text))
+            continue;
+        *id = QString::fromLatin1(pattern.id);
+        *name = QString::fromLatin1(pattern.name);
+        QRegExp release(QStringLiteral("\\+deb(\\d+)u"));
+        if (*id == QLatin1String("debian") && release.indexIn(QString::fromLatin1(banner)) >= 0)
+            *name += QLatin1Char(' ') + release.cap(1);
+        return true;
+    }
+    return false;
+}
+
+static bool describeSystem(const QByteArray &output, QString *id, QString *name)
+{
+    QString unameLine;
+    QHash<QString, QString> release;
+    for (const QByteArray &rawLine : output.split('\n')) {
+        const QString line = QString::fromUtf8(rawLine).trimmed();
+        const int equals = line.indexOf(QLatin1Char('='));
+        if (equals > 0 && line.left(equals).contains(QRegExp(QStringLiteral("^[A-Z_]+$")))) {
+            QString value = line.mid(equals + 1);
+            if (value.size() >= 2 && (value.startsWith(QLatin1Char('"')) || value.startsWith(QLatin1Char('\'')))
+                    && value.endsWith(value.at(0)))
+                value = value.mid(1, value.size() - 2);
+            release.insert(line.left(equals), value);
+        } else if (unameLine.isEmpty() && !line.isEmpty()) {
+            unameLine = line;
+        }
+    }
+
+    if (release.contains(QStringLiteral("ID"))) {
+        *id = release.value(QStringLiteral("ID")) + QLatin1Char(' ') + release.value(QStringLiteral("ID_LIKE"));
+        *name = release.value(QStringLiteral("PRETTY_NAME"));
+        if (name->isEmpty())
+            *name = (release.value(QStringLiteral("NAME")) + QLatin1Char(' ') + release.value(QStringLiteral("VERSION_ID"))).trimmed();
+    } else {
+        const QString kernel = unameLine.section(QLatin1Char(' '), 0, 0);
+        if (kernel == QLatin1String("Darwin")) {
+            *id = QStringLiteral("macos");
+            *name = QStringLiteral("macOS");
+        } else if (kernel.startsWith(QLatin1String("CYGWIN")) || kernel.startsWith(QLatin1String("MINGW"))
+                   || kernel.startsWith(QLatin1String("MSYS"))) {
+            *id = QStringLiteral("windows");
+            *name = QStringLiteral("Windows");
+        } else if (kernel == QLatin1String("SunOS")) {
+            *id = QStringLiteral("solaris");
+            *name = unameLine;
+        } else if (!kernel.isEmpty() && kernel.contains(QRegExp(QStringLiteral("^[A-Za-z][A-Za-z0-9_-]*$")))) {
+            *id = kernel;
+            *name = unameLine;
+        }
+    }
+    *id = cleanSystemId(*id);
+    *name = cleanSystemName(*name);
+    return !id->isEmpty();
+}
 
 // Carries the target connection's bytes over a direct-tcpip channel of the
 // jump host session. libssh's own ProxyJump stops every jump thread in the
@@ -154,6 +244,7 @@ public:
         , m_promptAnswered(false)
         , m_agent(nullptr)
         , m_jumpProxy(nullptr)
+        , m_systemProbe(nullptr)
     {
         std::memset(&m_callbacks, 0, sizeof(m_callbacks));
         // Lets other threads wake the worker out of poll()
@@ -231,6 +322,7 @@ signals:
     void hostKeyChanged(const QString &fingerprint, const QString &knownHostsPattern);
     // canRemember is set when the answer is the account password
     void promptRequested(const QString &text, bool echo, bool canRemember);
+    void systemDetected(const QString &id, const QString &name, bool certain);
 
 protected:
     void run() override
@@ -244,6 +336,7 @@ protected:
 
         if (openShell(session, &channel)) {
             emit connected(m_localAddress);
+            startSystemProbe(session);
             listenForForwards();
             readLoop(session, channel);
         }
@@ -255,6 +348,7 @@ protected:
         for (const Listener &listener : m_listeners)
             close(listener.fd);
         m_listeners.clear();
+        finishSystemProbe();
         if (channel) {
             if (ssh_channel_is_open(channel)) {
                 ssh_channel_send_eof(channel);
@@ -477,6 +571,10 @@ private:
 
         if (!verifyHost(session, m_config.host, m_config.port, false))
             return false;
+        QString systemId;
+        QString systemName;
+        if (guessSystem(QByteArray(ssh_get_serverbanner(session)), &systemId, &systemName))
+            emit systemDetected(systemId, systemName, false);
 
         if (!authenticate(session, &m_config.credentials, false))
             return false;
@@ -511,6 +609,52 @@ private:
         if (ssh_channel_request_shell(channel) != SSH_OK)
             return fail(session, tr("Could not start shell"), false);
         return true;
+    }
+
+    void startSystemProbe(ssh_session session)
+    {
+        m_systemProbe = ssh_channel_new(session);
+        if (m_systemProbe && ssh_channel_open_session(m_systemProbe) == SSH_OK
+                && ssh_channel_request_exec(m_systemProbe, SystemProbeCommand) == SSH_OK) {
+            m_systemProbeTime.start();
+            return;
+        }
+        finishSystemProbe();
+    }
+
+    void serviceSystemProbe()
+    {
+        if (!m_systemProbe)
+            return;
+        char buffer[4096];
+        for (;;) {
+            const int n = ssh_channel_read_nonblocking(m_systemProbe, buffer, sizeof(buffer), 0);
+            if (n > 0) {
+                if (m_systemProbeOutput.size() < MaxSystemProbeOutput)
+                    m_systemProbeOutput.append(buffer, n);
+                continue;
+            }
+            if (n == 0 && ssh_channel_is_open(m_systemProbe) && !ssh_channel_is_eof(m_systemProbe)
+                    && !m_systemProbeTime.hasExpired(SystemProbeTimeoutMs))
+                return;
+            break;
+        }
+        QString id;
+        QString name;
+        if (describeSystem(m_systemProbeOutput, &id, &name))
+            emit systemDetected(id, name, true);
+        finishSystemProbe();
+    }
+
+    void finishSystemProbe()
+    {
+        if (!m_systemProbe)
+            return;
+        if (ssh_channel_is_open(m_systemProbe))
+            ssh_channel_close(m_systemProbe);
+        ssh_channel_free(m_systemProbe);
+        m_systemProbe = nullptr;
+        m_systemProbeOutput.clear();
     }
 
     bool authenticate(ssh_session session, SshCredentials *credentials, bool jump)
@@ -961,6 +1105,7 @@ private:
                 break;
             if (!serviceStreams(session))
                 return;
+            serviceSystemProbe();
 
             if (idle.hasExpired(KeepAliveIntervalMs)) {
                 if (ssh_send_ignore(session, "keepalive") != SSH_OK) {
@@ -994,7 +1139,11 @@ private:
                 const Stream *stream = m_streams.at(i);
                 buffered = wantsChannelData(stream) && ssh_channel_poll(stream->channel, 0) > 0;
             }
-            const int timeout = buffered ? 0 : int(qMax<qint64>(0, KeepAliveIntervalMs - idle.elapsed()));
+            if (m_systemProbe)
+                buffered = buffered || ssh_channel_poll(m_systemProbe, 0) > 0;
+            int timeout = buffered ? 0 : int(qMax<qint64>(0, KeepAliveIntervalMs - idle.elapsed()));
+            if (m_systemProbe)
+                timeout = qMin(timeout, int(qMax<qint64>(0, SystemProbeTimeoutMs - m_systemProbeTime.elapsed())) + 1);
             const int ready = poll(fds.data(), nfds_t(fds.size()), timeout);
             if (ready < 0 && errno != EINTR) {
                 report(tr("Connection lost"), true, false);
@@ -1056,6 +1205,9 @@ private:
     QByteArray m_promptAnswer;
     SshAgent *m_agent;
     JumpProxy *m_jumpProxy;
+    ssh_channel m_systemProbe;
+    QByteArray m_systemProbeOutput;
+    QElapsedTimer m_systemProbeTime;
     QMutex m_socketMutex;
     QList<int> m_sockets;
     QAtomicInt m_unconsumed;
@@ -1326,6 +1478,7 @@ void SshSession::startWorker(const SshCredentials &credentials, const SshCredent
     connect(m_worker, &SshWorker::shellExited, this, &SshSession::shellExited);
     connect(m_worker, &SshWorker::hostKeyChanged, this, &SshSession::onHostKeyChanged);
     connect(m_worker, &SshWorker::promptRequested, this, &SshSession::onWorkerPrompt);
+    connect(m_worker, &SshWorker::systemDetected, this, &SshSession::onWorkerSystem);
     connect(m_worker, &QThread::finished, this, &SshSession::onWorkerFinished);
     setState(Connecting);
     m_worker->start();
@@ -1383,6 +1536,22 @@ void SshSession::onHostKeyChanged(const QString &fingerprint, const QString &kno
     m_mismatchPattern = knownHostsPattern;
     m_hostKeyMismatch = true;
     emit hostKeyMismatchChanged();
+}
+
+void SshSession::setSystem(const QString &id, const QString &name)
+{
+    if (m_systemId == id && m_systemName == name)
+        return;
+    m_systemId = id;
+    m_systemName = name;
+    emit systemChanged();
+}
+
+void SshSession::onWorkerSystem(const QString &id, const QString &name, bool certain)
+{
+    if (!certain && !m_systemId.isEmpty())
+        return;
+    setSystem(id, name);
 }
 
 void SshSession::onWorkerPrompt(const QString &text, bool echo, bool canRemember)

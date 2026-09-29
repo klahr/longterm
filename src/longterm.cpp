@@ -19,6 +19,7 @@
 int main(int argc, char *argv[])
 {
     QScopedPointer<QGuiApplication> app(SailfishApp::application(argc, argv));
+    app->setApplicationVersion(QStringLiteral(APP_VERSION));
 
     const int fontId = QFontDatabase::addApplicationFont(
                 SailfishApp::pathTo(QStringLiteral("fonts/SourceCodePro-Medium.ttf")).toLocalFile());

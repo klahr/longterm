@@ -13,6 +13,7 @@ Source0:    %{name}-%{version}.tar.bz2
 Requires:   sailfishsilica-qt5 >= 0.10.9
 Requires:   qt5-qtfeedback
 Requires:   nemo-qml-plugin-notifications-qt5
+Requires:   qt5-qtsvg-plugin-imageformat-svg
 BuildRequires:  pkgconfig(sailfishapp) >= 1.0.2
 BuildRequires:  pkgconfig(Qt5Core)
 BuildRequires:  pkgconfig(Qt5Qml)
@@ -36,7 +37,7 @@ and keys kept in the Sailfish Secrets keychain.
 
 %build
 
-%qmake5 
+%qmake5 VERSION=%{version}
 
 %make_build
 

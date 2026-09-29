@@ -48,3 +48,5 @@ Bundled third-party code:
   [Neovim mirror](https://github.com/neovim/libvterm)), with memory safety fixes from
   `3rdparty/patches/libvterm` applied at build time
 - [Source Code Pro](https://github.com/adobe-fonts/source-code-pro), SIL Open Font License 1.1 (`fonts`)
+- [Devicon](https://devicon.dev/) operating system logos, MIT (`qml/images/systems`). The logos are
+  trademarks of their respective owners.

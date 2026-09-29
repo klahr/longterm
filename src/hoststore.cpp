@@ -43,6 +43,8 @@ QVariant HostStore::data(const QModelIndex &index, int role) const
     case UserRole: return host.user;
     case KeyIdRole: return host.keyId;
     case HasPasswordRole: return host.hasPassword;
+    case SystemIdRole: return host.systemId;
+    case SystemNameRole: return host.systemName;
     default: return QVariant();
     }
 }
@@ -57,6 +59,8 @@ QHash<int, QByteArray> HostStore::roleNames() const
     roles[UserRole] = "user";
     roles[KeyIdRole] = "keyId";
     roles[HasPasswordRole] = "hasPassword";
+    roles[SystemIdRole] = "systemId";
+    roles[SystemNameRole] = "systemName";
     return roles;
 }
 
@@ -78,6 +82,10 @@ QString HostStore::saveHost(const QString &hostId, const QString &name,
         host.hasPassword = false;
     }
     host.name = singleLine(name);
+    if (host.address != singleLine(address)) {
+        host.systemId.clear();
+        host.systemName.clear();
+    }
     host.address = singleLine(address);
     host.port = port >= 1 && port <= 65535 ? port : 22;
     host.user = singleLine(user);
@@ -148,6 +156,17 @@ void HostStore::forgetKey(const QString &keyId)
     }
     if (changed)
         save();
+}
+
+void HostStore::setSystem(const QString &hostId, const QString &id, const QString &name)
+{
+    const int row = indexOf(hostId);
+    if (row < 0 || (m_hosts.at(row).systemId == id && m_hosts.at(row).systemName == name))
+        return;
+    m_hosts[row].systemId = id;
+    m_hosts[row].systemName = name;
+    save();
+    emit dataChanged(index(row), index(row), { SystemIdRole, SystemNameRole });
 }
 
 void HostStore::removeHost(const QString &hostId)
@@ -425,6 +444,8 @@ void HostStore::load()
         host.jumpHostId = m_settings.value(QStringLiteral("jumpHostId")).toString();
         host.forwardAgent = m_settings.value(QStringLiteral("forwardAgent"), false).toBool();
         host.localForwards = m_settings.value(QStringLiteral("localForwards")).toStringList();
+        host.systemId = m_settings.value(QStringLiteral("systemId")).toString();
+        host.systemName = m_settings.value(QStringLiteral("systemName")).toString();
         if (host.id.isEmpty())
             continue;
         m_hosts.append(host);
@@ -449,6 +470,8 @@ void HostStore::save()
         m_settings.setValue(QStringLiteral("jumpHostId"), host.jumpHostId);
         m_settings.setValue(QStringLiteral("forwardAgent"), host.forwardAgent);
         m_settings.setValue(QStringLiteral("localForwards"), host.localForwards);
+        m_settings.setValue(QStringLiteral("systemId"), host.systemId);
+        m_settings.setValue(QStringLiteral("systemName"), host.systemName);
     }
     m_settings.endArray();
     m_settings.sync();

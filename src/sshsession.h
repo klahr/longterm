@@ -40,6 +40,8 @@ class SshSession : public QObject
     Q_PROPERTY(bool promptEcho READ promptEcho NOTIFY promptChanged)
     // The prompt asks for the password, which can be saved with the host
     Q_PROPERTY(bool promptCanRemember READ promptCanRemember NOTIFY promptChanged)
+    Q_PROPERTY(QString systemId READ systemId NOTIFY systemChanged)
+    Q_PROPERTY(QString systemName READ systemName NOTIFY systemChanged)
 
 public:
     enum State {
@@ -75,6 +77,9 @@ public:
     bool prompting() const { return m_prompting; }
     QString promptText() const { return m_promptText; }
     bool promptEcho() const { return m_promptEcho; }
+    QString systemId() const { return m_systemId; }
+    QString systemName() const { return m_systemName; }
+    void setSystem(const QString &id, const QString &name);
     bool promptCanRemember() const { return m_promptCanRemember && m_canRememberPassword && m_auth.kind == Password; }
     // Set for sessions of a saved host, which has somewhere to keep the password
     void setCanRememberPassword(bool canRemember) { m_canRememberPassword = canRemember; }
@@ -121,6 +126,7 @@ signals:
     void shellExited();
     void hostKeyMismatchChanged();
     void promptChanged();
+    void systemChanged();
     void endpointChanged();
     // The user asked to save the password they typed
     void passwordRemembered(const QString &password);
@@ -134,6 +140,7 @@ private slots:
     void onWorkerFailed(const QString &message, bool network);
     void onHostKeyChanged(const QString &fingerprint, const QString &knownHostsPattern);
     void onWorkerPrompt(const QString &text, bool echo, bool canRemember);
+    void onWorkerSystem(const QString &id, const QString &name, bool certain);
     void onWorkerFinished();
     void onTerminalOutput(const QByteArray &data);
     void onTerminalSizeChanged();
@@ -175,6 +182,8 @@ private:
     bool m_canRememberPassword;
     bool m_lost;
     bool m_reachedConnected;
+    QString m_systemId;
+    QString m_systemName;
     QString m_localAddress;
     // How the last connection authenticated, for reconnecting
     AuthSource m_auth;

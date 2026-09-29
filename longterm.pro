@@ -13,6 +13,7 @@
 TARGET = longterm
 
 CONFIG += sailfishapp
+DEFINES += APP_VERSION=\\\"$$VERSION\\\"
 QT += network concurrent
 PKGCONFIG += sailfishsecrets
 
@@ -115,12 +116,22 @@ libssh_install.extra = mkdir -p $(INSTALL_ROOT)$$libssh_install.path && \
     cp -P $$LIBSSH_BUILD/lib/libssh.so.* $(INSTALL_ROOT)$$libssh_install.path/
 INSTALLS += libssh_install
 
+licenses.path = /usr/share/$${TARGET}/licenses
+licenses.extra = mkdir -p $(INSTALL_ROOT)$$licenses.path && \
+    cp $$PWD/LICENSE $(INSTALL_ROOT)$$licenses.path/longterm.txt && \
+    cp $$LIBSSH_SRC/COPYING $(INSTALL_ROOT)$$licenses.path/libssh.txt && \
+    cp $$LIBVTERM_SRC/LICENSE $(INSTALL_ROOT)$$licenses.path/libvterm.txt
+INSTALLS += licenses
+
 DISTFILES += qml/longterm.qml \
     3rdparty/patches/libvterm/*.patch \
     qml/components/KeyButton.qml \
     qml/components/Keys.js \
     qml/components/StatusDot.qml \
+    qml/components/SystemIcon.qml \
+    qml/images/systems/* \
     qml/cover/CoverPage.qml \
+    qml/pages/AboutPage.qml \
     qml/pages/ColorSchemesPage.qml \
     qml/pages/EditSessionDialog.qml \
     qml/pages/ExportKeyDialog.qml \
@@ -131,6 +142,7 @@ DISTFILES += qml/longterm.qml \
     qml/pages/KeyPage.qml \
     qml/pages/KeysPage.qml \
     qml/pages/KnownHostsPage.qml \
+    qml/pages/LicensePage.qml \
     qml/pages/SessionMenuPage.qml \
     qml/pages/SessionPage.qml \
     qml/pages/SessionsPage.qml \

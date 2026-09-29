@@ -68,6 +68,7 @@ private:
     QHash<const SshSession *, Origin> m_origins;
     QSettings m_settings;
     AppSettings *m_appSettings;
+    bool m_loading;
     QNetworkConfigurationManager m_network;
     // The active network configurations last seen, to tell real changes from noise
     QStringList m_activeNetworks;

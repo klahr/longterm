@@ -19,6 +19,7 @@ SessionManager::SessionManager(SecretVault *vault, HostStore *hosts, AppSettings
     , m_settings(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation)
                  + QStringLiteral("/sessions.conf"), QSettings::IniFormat)
     , m_appSettings(appSettings)
+    , m_loading(false)
 {
     load();
     for (const QNetworkConfiguration &configuration : m_network.allConfigurations(QNetworkConfiguration::Active))
@@ -101,6 +102,8 @@ void SessionManager::configure(SshSession *session, const HostStore::Host &host)
     session->setCanRememberPassword(host.keyId.isEmpty());
     session->setForwardAgent(host.forwardAgent && !host.keyId.isEmpty());
     session->setLocalForwards(host.localForwards);
+    if (!host.systemId.isEmpty())
+        session->setSystem(host.systemId, host.systemName);
     HostStore::Host jump;
     if (host.jumpHostId.isEmpty() || !m_hosts->find(host.jumpHostId, &jump)) {
         session->clearJumpHost();
@@ -189,6 +192,13 @@ SshSession *SessionManager::addSession(const QString &name, const QString &host,
         rememberPassword(session, password);
     });
     connect(session, &SshSession::colorSchemeChanged, this, &SessionManager::save);
+    connect(session, &SshSession::systemChanged, this, [this, session]() {
+        const QString hostId = m_origins.value(session).hostId;
+        if (hostId.isEmpty())
+            save();
+        else
+            m_hosts->setSystem(hostId, session->systemId(), session->systemName());
+    });
     connect(session, &SshSession::connectionLost, this, [this, session]() {
         // Tried even when the bearer says offline, a failure waits for the next network change
         if (!m_appSettings->autoReconnect())
@@ -237,6 +247,7 @@ static const int MaxSessions = 1000;
 // Sessions come back disconnected, connecting only when the user asks
 void SessionManager::load()
 {
+    m_loading = true;
     const int size = qMin(m_settings.beginReadArray(QStringLiteral("sessions")), MaxSessions);
     for (int i = 0; i < size; ++i) {
         m_settings.setArrayIndex(i);
@@ -258,6 +269,8 @@ void SessionManager::load()
             SshSession *session = addSession(name, m_settings.value(QStringLiteral("host")).toString(), port,
                                              m_settings.value(QStringLiteral("user")).toString());
             session->setSecret(m_vault, keyId, SshSession::PrivateKey);
+            session->setSystem(m_settings.value(QStringLiteral("systemId")).toString(),
+                               m_settings.value(QStringLiteral("systemName")).toString());
             m_origins.insert(session, Origin { QString(), keyId });
         } else {
             continue;
@@ -266,10 +279,13 @@ void SessionManager::load()
         m_sessions.last()->setColorScheme(m_settings.value(QStringLiteral("colorScheme")).toString());
     }
     m_settings.endArray();
+    m_loading = false;
 }
 
 void SessionManager::save()
 {
+    if (m_loading)
+        return;
     m_settings.remove(QStringLiteral("sessions"));
     m_settings.beginWriteArray(QStringLiteral("sessions"));
     int index = 0;
@@ -286,6 +302,10 @@ void SessionManager::save()
         m_settings.setValue(QStringLiteral("user"), session->user());
         m_settings.setValue(QStringLiteral("startupScript"), session->startupScript());
         m_settings.setValue(QStringLiteral("colorScheme"), session->colorScheme());
+        if (origin.hostId.isEmpty()) {
+            m_settings.setValue(QStringLiteral("systemId"), session->systemId());
+            m_settings.setValue(QStringLiteral("systemName"), session->systemName());
+        }
     }
     m_settings.endArray();
     m_settings.sync();

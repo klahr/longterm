@@ -23,7 +23,9 @@ public:
         PortRole,
         UserRole,
         KeyIdRole,
-        HasPasswordRole
+        HasPasswordRole,
+        SystemIdRole,
+        SystemNameRole
     };
 
     struct Host {
@@ -39,6 +41,8 @@ public:
         bool forwardAgent;
         // "localPort:host:remotePort" entries
         QStringList localForwards;
+        QString systemId;
+        QString systemName;
     };
 
     explicit HostStore(SecretVault *vault, QObject *parent = nullptr);
@@ -62,6 +66,7 @@ public:
     void rememberPassword(const QString &hostId, const QString &password);
     // Hosts that used the deleted key ask for a password instead
     void forgetKey(const QString &keyId);
+    void setSystem(const QString &hostId, const QString &id, const QString &name);
     Q_INVOKABLE QVariantMap host(const QString &hostId) const;
     Q_INVOKABLE QString hostIdAt(int row) const;
     Q_INVOKABLE int indexOf(const QString &hostId) const;
