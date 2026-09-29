@@ -1,0 +1,60 @@
+--- a/src/state.c
++++ b/src/state.c
+@@ -186,18 +186,25 @@
+ 
+ static void set_col_tabstop(VTermState *state, int col)
+ {
++  /* The cursor can sit just past the last column */
++  if(col < 0 || col >= state->cols)
++    return;
+   unsigned char mask = 1 << (col & 7);
+   state->tabstops[col >> 3] |= mask;
+ }
+ 
+ static void clear_col_tabstop(VTermState *state, int col)
+ {
++  if(col < 0 || col >= state->cols)
++    return;
+   unsigned char mask = 1 << (col & 7);
+   state->tabstops[col >> 3] &= ~mask;
+ }
+ 
+ static int is_col_tabstop(VTermState *state, int col)
+ {
++  if(col < 0 || col >= state->cols)
++    return 0;
+   unsigned char mask = 1 << (col & 7);
+   return state->tabstops[col >> 3] & mask;
+ }
+@@ -1234,7 +1241,8 @@
+     count = CSI_ARG_COUNT(args[0]);
+     col = state->pos.col + count;
+     UBOUND(col, row_width);
+-    while (state->pos.col < col) {
++    /* Repeating a zero-width character would never move the cursor on */
++    while (state->combine_width > 0 && state->pos.col < col) {
+       putglyph(state, state->combine_chars, state->combine_width, state->pos);
+       state->pos.col += state->combine_width;
+     }
+@@ -1979,10 +1987,17 @@
+   state->rows = rows;
+   state->cols = cols;
+ 
+-  if(state->scrollregion_bottom > -1)
+-    UBOUND(state->scrollregion_bottom, state->rows);
+-  if(state->scrollregion_right > -1)
+-    UBOUND(state->scrollregion_right, state->cols);
++  /* Like xterm, go back to full-screen margins. Clamping only the bottom and
++   * right edges could leave them before the top and left ones. */
++  state->scrollregion_top = 0;
++  state->scrollregion_bottom = -1;
++  state->scrollregion_left = 0;
++  state->scrollregion_right = -1;
++
++  /* DECRC and leaving the alternate screen restore this position, which
++   * must be on the new screen */
++  UBOUND(state->saved.pos.row, state->rows - 1);
++  UBOUND(state->saved.pos.col, state->cols - 1);
+ 
+   VTermStateFields fields = {
+     .pos       = state->pos,

@@ -27,8 +27,13 @@ bool readString(const QByteArray &data, int *pos, QByteArray *value)
     return true;
 }
 
+// bcrypt rounds make a passphrase slower to guess, and slower to check on
+// every connect. OpenSSH uses 16 by default, ssh-keygen -a raises it.
+const quint32 MaxKdfRounds = 1000;
+
 // The OpenSSH format keeps the public key readable in front of the encrypted part
-bool openSshPublicKey(const QByteArray &privateKey, QByteArray *publicKeyBlob, bool *encrypted)
+bool openSshPublicKey(const QByteArray &privateKey, QByteArray *publicKeyBlob, bool *encrypted,
+                      quint32 *kdfRounds = nullptr)
 {
     static const QByteArray begin("-----BEGIN OPENSSH PRIVATE KEY-----");
     static const QByteArray end("-----END OPENSSH PRIVATE KEY-----");
@@ -53,6 +58,16 @@ bool openSshPublicKey(const QByteArray &privateKey, QByteArray *publicKeyBlob, b
         return false;
     if (encrypted)
         *encrypted = cipher != "none";
+    if (kdfRounds) {
+        // kdfoptions for bcrypt are the salt followed by the rounds
+        int optionsPos = 0;
+        QByteArray salt;
+        *kdfRounds = 0;
+        if (readString(kdfOptions, &optionsPos, &salt) && kdfOptions.size() - optionsPos >= 4) {
+            const uchar *p = reinterpret_cast<const uchar *>(kdfOptions.constData()) + optionsPos;
+            *kdfRounds = quint32(p[0]) << 24 | quint32(p[1]) << 16 | quint32(p[2]) << 8 | quint32(p[3]);
+        }
+    }
     return true;
 }
 
@@ -133,11 +148,19 @@ QString KeyStore::validatePrivateKey(const QString &privateKey, const QString &p
 {
     if (privateKey.trimmed().isEmpty())
         return tr("Paste a private key");
-    if (passphrase.isEmpty() && isEncrypted(privateKey.toUtf8())) {
-        QByteArray blob;
-        return openSshPublicKey(privateKey.toUtf8(), &blob, nullptr) ? QString()
-                                                                     : tr("This older key format needs its passphrase to be imported");
+    const QByteArray data = privateKey.toUtf8();
+    QByteArray blob;
+    bool encrypted = false;
+    quint32 rounds = 0;
+    if (openSshPublicKey(data, &blob, &encrypted, &rounds) && encrypted) {
+        if (rounds > MaxKdfRounds)
+            return tr("The key's passphrase takes %1 rounds to check, too slow to use on every connect").arg(rounds);
+        // Checking the passphrase takes a noticeable moment, so it is left to
+        // importKey instead of being done for every character typed
+        return QString();
     }
+    if (passphrase.isEmpty() && isEncrypted(data))
+        return tr("This older key format needs its passphrase to be imported");
     ssh_key key = nullptr;
     const QByteArray passphraseData = passphrase.toUtf8();
     if (ssh_pki_import_privkey_base64(privateKey.trimmed().toUtf8().constData(),
@@ -211,7 +234,8 @@ void KeyStore::importKey(const QString &name, const QString &privateKey, const Q
     if (ssh_pki_import_privkey_base64(privateKey.trimmed().toUtf8().constData(),
                                       passphrase.isEmpty() ? nullptr : passphraseData.constData(),
                                       nullptr, nullptr, &key) != SSH_OK) {
-        setError(tr("Could not read private key"));
+        setError(passphrase.isEmpty() ? tr("Could not read private key")
+                                      : tr("Wrong passphrase, the key was not imported"));
         return;
     }
     // Stored without the passphrase, Sailfish Secrets encrypts it instead

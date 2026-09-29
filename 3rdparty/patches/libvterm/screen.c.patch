@@ -1,0 +1,69 @@
+--- a/src/screen.c
++++ b/src/screen.c
+@@ -186,8 +186,13 @@
+   if(i < VTERM_MAX_CHARS_PER_CELL)
+     cell->chars[i] = 0;
+ 
+-  for(int col = 1; col < info->width; col++)
+-    getcell(screen, pos.row, pos.col + col)->chars[0] = (uint32_t)-1;
++  for(int col = 1; col < info->width; col++) {
++    /* A wide glyph at the last column, e.g. repeated there by REP or in a
++     * one-column screen, has no cell for its right half */
++    ScreenCell *rest = getcell(screen, pos.row, pos.col + col);
++    if(rest)
++      rest->chars[0] = (uint32_t)-1;
++  }
+ 
+   VTermRect rect = {
+     .start_row = pos.row,
+@@ -241,10 +246,18 @@
+     inc_row  = +1;
+   }
+ 
+-  for(int row = init_row; row != test_row; row += inc_row)
+-    memmove(getcell(screen, row, dest.start_col),
+-            getcell(screen, row + downward, src.start_col),
+-            cols * sizeof(ScreenCell));
++  /* Some sequence combinations (insert mode with a cursor left past the
++   * line) ask for moves outside the screen; skip what does not exist */
++  if(cols <= 0 || dest.start_col < 0 || src.start_col < 0 ||
++     dest.start_col + cols > screen->cols || src.start_col + cols > screen->cols)
++    return 1;
++
++  for(int row = init_row; row != test_row; row += inc_row) {
++    ScreenCell *to = getcell(screen, row, dest.start_col);
++    ScreenCell *from = getcell(screen, row + downward, src.start_col);
++    if(to && from)
++      memmove(to, from, cols * sizeof(ScreenCell));
++  }
+ 
+   return 1;
+ }
+@@ -277,6 +290,8 @@
+     for(int col = rect.start_col; col < rect.end_col; col++) {
+       ScreenCell *cell = getcell(screen, row, col);
+ 
++      if(!cell)
++        continue;
+       if(selective && cell->pen.protected_cell)
+         continue;
+ 
+@@ -659,10 +674,15 @@
+       new_cursor.col = new_cols-1;
+   }
+ 
+-  /* We really expect the cursor position to be set by now */
++  /* The cursor should have been placed by now; when some state combination
++   * leaves it unplaced, keep it where it was rather than aborting */
+   if(active && (new_cursor.row == -1 || new_cursor.col == -1)) {
+-    fprintf(stderr, "screen_resize failed to update cursor position\n");
+-    abort();
++    new_cursor.row = old_cursor.row < new_rows ? old_cursor.row : new_rows - 1;
++    new_cursor.col = old_cursor.col < new_cols ? old_cursor.col : new_cols - 1;
++    if(new_cursor.row < 0)
++      new_cursor.row = 0;
++    if(new_cursor.col < 0)
++      new_cursor.col = 0;
+   }
+ 
+   if(old_row >= 0 && bufidx == BUFIDX_PRIMARY) {

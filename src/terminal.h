@@ -77,6 +77,8 @@ private:
     QString m_title;
     QByteArray m_pendingTitle;
     QByteArray m_pendingClipboard;
+    // libvterm decodes OSC 52 into this, it would leak a buffer of its own
+    char m_clipboardBuffer[4096];
     bool m_clipboardTooLarge;
     QList<QVector<VTermScreenCell> > m_scrollback;
     qint64 m_scrolledLines;

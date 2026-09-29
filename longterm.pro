@@ -44,9 +44,24 @@ HEADERS += src/appsettings.h \
 # libvterm (MIT) is small enough to compile straight into the app
 LIBVTERM_SRC = $$PWD/3rdparty/libvterm
 LIBVTERM_GEN = $$OUT_PWD/libvterm-gen
-INCLUDEPATH += $$LIBVTERM_SRC/include $$LIBVTERM_GEN
-SOURCES += $$files($$LIBVTERM_SRC/src/*.c)
+# The patched copies below include their neighbours from src
+INCLUDEPATH += $$LIBVTERM_SRC/include $$LIBVTERM_SRC/src $$LIBVTERM_GEN
 QMAKE_CFLAGS += -std=c99
+
+# libvterm 0.3.3 reads and writes outside its buffers on some output from the
+# server and on resizes, and its mirror is no longer maintained. qmake makes
+# patched copies of the affected files, see 3rdparty/patches/libvterm.
+LIBVTERM_PATCHES = $$PWD/3rdparty/patches/libvterm
+LIBVTERM_PATCHED = parser.c screen.c state.c
+LIBVTERM_SOURCES = $$files($$LIBVTERM_SRC/src/*.c)
+for(file, LIBVTERM_PATCHED) {
+    !system(mkdir -p $$LIBVTERM_GEN/src && cp $$LIBVTERM_SRC/src/$$file $$LIBVTERM_GEN/src/$$file \
+            && patch -s $$LIBVTERM_GEN/src/$$file $$LIBVTERM_PATCHES/$${file}.patch): \
+        error(Could not patch libvterm $$file)
+    LIBVTERM_SOURCES -= $$LIBVTERM_SRC/src/$$file
+    LIBVTERM_SOURCES += $$LIBVTERM_GEN/src/$$file
+}
+SOURCES += $$LIBVTERM_SOURCES
 
 # The git tree only has the character set tables as .tbl sources, generate
 # the .inc files encoding.c includes the same way upstream's Makefile does.
@@ -101,6 +116,7 @@ libssh_install.extra = mkdir -p $(INSTALL_ROOT)$$libssh_install.path && \
 INSTALLS += libssh_install
 
 DISTFILES += qml/longterm.qml \
+    3rdparty/patches/libvterm/*.patch \
     qml/components/KeyButton.qml \
     qml/components/Keys.js \
     qml/components/StatusDot.qml \

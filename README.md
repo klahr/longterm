@@ -45,5 +45,6 @@ Bundled third-party code:
 
 - [libssh](https://www.libssh.org/) 0.12.2, LGPL-2.1 (`3rdparty/libssh`, submodule)
 - [libvterm](https://www.leonerd.org.uk/code/libvterm/) 0.3.3, MIT (`3rdparty/libvterm`, submodule of the
-  [Neovim mirror](https://github.com/neovim/libvterm))
+  [Neovim mirror](https://github.com/neovim/libvterm)), with memory safety fixes from
+  `3rdparty/patches/libvterm` applied at build time
 - [Source Code Pro](https://github.com/adobe-fonts/source-code-pro), SIL Open Font License 1.1 (`fonts`)

@@ -7,6 +7,8 @@
 static const int MaxScrollbackLines = 5000;
 // Larger clipboard writes from the server are dropped
 static const int MaxClipboardBytes = 1024 * 1024;
+// Longer titles are cut
+static const int MaxTitleBytes = 4096;
 
 const VTermScreenCallbacks Terminal::s_screenCallbacks = {
     &Terminal::onDamage,
@@ -50,10 +52,11 @@ Terminal::Terminal(QObject *parent)
     vterm_screen_set_callbacks(m_screen, &s_screenCallbacks, this);
     vterm_screen_set_damage_merge(m_screen, VTERM_DAMAGE_SCROLL);
     vterm_screen_enable_altscreen(m_screen, 1);
-    vterm_screen_enable_reflow(m_screen, true);
+    // Rewrapping long lines on resize reads past its buffers in libvterm 0.3.3
+    vterm_screen_enable_reflow(m_screen, false);
     vterm_screen_reset(m_screen, 1);
-    // libvterm decodes the base64 into its own buffer in chunks of this size
-    vterm_state_set_selection_callbacks(vterm_obtain_state(m_vterm), &s_selectionCallbacks, this, nullptr, 4096);
+    vterm_state_set_selection_callbacks(vterm_obtain_state(m_vterm), &s_selectionCallbacks, this,
+                                        m_clipboardBuffer, sizeof(m_clipboardBuffer));
 }
 
 Terminal::~Terminal()
@@ -197,7 +200,10 @@ int Terminal::onSetTermProp(VTermProp prop, VTermValue *value, void *user)
     case VTERM_PROP_TITLE:
         if (value->string.initial)
             terminal->m_pendingTitle.clear();
-        terminal->m_pendingTitle.append(value->string.str, int(value->string.len));
+        // An unterminated title would otherwise grow for as long as the server sends
+        if (terminal->m_pendingTitle.size() < MaxTitleBytes)
+            terminal->m_pendingTitle.append(value->string.str, qMin(int(value->string.len),
+                                                                    MaxTitleBytes - terminal->m_pendingTitle.size()));
         if (value->string.final) {
             terminal->m_title = QString::fromUtf8(terminal->m_pendingTitle);
             emit terminal->titleChanged();
