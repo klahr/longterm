@@ -101,6 +101,7 @@ TerminalView::TerminalView(QQuickItem *parent)
     , m_endColumn(0)
     , m_preview(false)
     , m_radius(0)
+    , m_scrolledLines(0)
 {
     setFlag(ItemAcceptsInputMethod, true);
     setFlag(ItemIsFocusScope, false);
@@ -122,6 +123,7 @@ void TerminalView::setTerminal(Terminal *terminal)
         connect(m_terminal.data(), &Terminal::sizeChanged, this, &TerminalView::onSizeChanged);
     }
     clearSelection();
+    m_scrolledLines = m_terminal ? m_terminal->scrolledLines() : 0;
     setScrollOffset(0);
     applyColorScheme();
     updateTerminalSize();
@@ -672,7 +674,11 @@ void TerminalView::applyColorScheme()
 
 void TerminalView::onContentChanged()
 {
-    // Keep the scrolled-back view clamped as the scrollback grows or shrinks
-    setScrollOffset(m_scrollOffset);
+    // A scrolled-back view stays on the lines being read while output arrives,
+    // instead of moving along a fixed distance from the bottom
+    const qint64 scrolled = m_terminal ? m_terminal->scrolledLines() : 0;
+    const qint64 added = scrolled - m_scrolledLines;
+    m_scrolledLines = scrolled;
+    setScrollOffset(m_scrollOffset > 0 ? int(m_scrollOffset + added) : 0);
     update();
 }

@@ -222,10 +222,14 @@ Page {
                                 terminalView.updateSelection(mouse.x, mouse.y)
                                 return
                             }
-                            var lines = Math.round((mouse.y - startY) / terminalView.cellHeight)
-                            if (lines !== 0)
+                            // A tap that wobbles a little should not scroll
+                            if (!dragged) {
+                                if (Math.abs(mouse.y - startY) < Theme.startDragDistance)
+                                    return
                                 dragged = true
-                            terminalView.scrollOffset = startOffset + lines
+                                startY = mouse.y
+                            }
+                            terminalView.scrollOffset = startOffset + Math.round((mouse.y - startY) / terminalView.cellHeight)
                         }
                         onDoubleClicked: terminalView.selectWordAt(mouse.x, mouse.y)
                         onReleased: selecting = false
@@ -417,6 +421,45 @@ Page {
                                 }
                             }
                         }
+                    }
+                }
+
+                // Shows that newer output is hidden below, and goes back to it
+                Rectangle {
+                    anchors {
+                        right: parent.right
+                        bottom: parent.bottom
+                        margins: Theme.paddingMedium
+                    }
+                    width: latestRow.width + 2 * Theme.paddingMedium
+                    height: Theme.itemSizeExtraSmall
+                    radius: height / 2
+                    color: Theme.rgba(latestArea.pressed ? Theme.highlightBackgroundColor : Theme.highlightDimmerColor, 0.9)
+                    visible: terminalView.scrollOffset > 0 && !terminalView.hasSelection
+
+                    Row {
+                        id: latestRow
+
+                        anchors.centerIn: parent
+                        spacing: Theme.paddingSmall
+
+                        Icon {
+                            anchors.verticalCenter: parent.verticalCenter
+                            source: "image://theme/icon-m-down"
+                        }
+
+                        Label {
+                            anchors.verticalCenter: parent.verticalCenter
+                            text: terminalView.scrollOffset === 1 ? qsTr("1 line below") : qsTr("%1 lines below").arg(terminalView.scrollOffset)
+                            font.pixelSize: Theme.fontSizeSmall
+                            color: Theme.highlightColor
+                        }
+                    }
+
+                    MouseArea {
+                        id: latestArea
+                        anchors.fill: parent
+                        onClicked: terminalView.scrollOffset = 0
                     }
                 }
             }

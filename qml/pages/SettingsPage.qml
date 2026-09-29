@@ -113,7 +113,8 @@ Page {
                 enabled: hostStore.count > 0
                 onClicked: {
                     Clipboard.text = hostStore.exportConfig()
-                    page.hostsMessage = qsTr("Copied %n host(s) to the clipboard", "", hostStore.count)
+                    page.hostsMessage = hostStore.count === 1 ? qsTr("Copied 1 host to the clipboard")
+                                                              : qsTr("Copied %1 hosts to the clipboard").arg(hostStore.count)
                 }
             }
 
@@ -122,7 +123,8 @@ Page {
                 onClicked: {
                     var dialog = pageStack.push(Qt.resolvedUrl("ImportHostsDialog.qml"))
                     dialog.accepted.connect(function() {
-                        page.hostsMessage = qsTr("Read %n host(s)", "", dialog.imported)
+                        page.hostsMessage = dialog.imported === 1 ? qsTr("Read 1 host")
+                                                                   : qsTr("Read %1 hosts").arg(dialog.imported)
                     })
                 }
             }

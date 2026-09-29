@@ -31,6 +31,7 @@ Terminal::Terminal(QObject *parent)
     , m_columns(80)
     , m_cursorVisible(true)
     , m_clipboardTooLarge(false)
+    , m_scrolledLines(0)
 {
     m_cursor.row = 0;
     m_cursor.col = 0;
@@ -219,6 +220,7 @@ int Terminal::onPushLine(int columns, const VTermScreenCell *cells, void *user)
     QVector<VTermScreenCell> line(columns);
     std::memcpy(line.data(), cells, columns * sizeof(VTermScreenCell));
     terminal->m_scrollback.append(line);
+    ++terminal->m_scrolledLines;
     if (terminal->m_scrollback.size() > MaxScrollbackLines)
         terminal->m_scrollback.removeFirst();
     return 1;
@@ -231,6 +233,7 @@ int Terminal::onPopLine(int columns, VTermScreenCell *cells, void *user)
         return 0;
 
     const QVector<VTermScreenCell> line = terminal->m_scrollback.takeLast();
+    --terminal->m_scrolledLines;
     const VTermScreenCell blank = terminal->blankCell();
     for (int column = 0; column < columns; ++column)
         cells[column] = column < line.size() ? line.at(column) : blank;

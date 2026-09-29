@@ -125,6 +125,8 @@ private:
     QString m_colorScheme;
     bool m_preview;
     qreal m_radius;
+    // The terminal's scrolledLines() when last drawn
+    qint64 m_scrolledLines;
 };
 
 #endif // TERMINALVIEW_H

@@ -26,6 +26,9 @@ public:
     int rows() const { return m_rows; }
     int columns() const { return m_columns; }
     int scrollbackLines() const { return m_scrollback.size(); }
+    // Lines moved into the scrollback minus those taken back, which keeps
+    // counting when the oldest lines are dropped
+    qint64 scrolledLines() const { return m_scrolledLines; }
     QString title() const { return m_title; }
     VTermPos cursorPosition() const { return m_cursor; }
     bool cursorVisible() const { return m_cursorVisible; }
@@ -76,6 +79,7 @@ private:
     QByteArray m_pendingClipboard;
     bool m_clipboardTooLarge;
     QList<QVector<VTermScreenCell> > m_scrollback;
+    qint64 m_scrolledLines;
 };
 
 #endif // TERMINAL_H
