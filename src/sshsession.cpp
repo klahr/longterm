@@ -667,6 +667,7 @@ private:
         int methods = ssh_userauth_list(session, nullptr);
 
         bool passwordLeft = !credentials->password.isEmpty();
+        const bool hadKey = !credentials->privateKey.isEmpty();
         if (!credentials->privateKey.isEmpty()) {
             ssh_key key = nullptr;
             rc = ssh_pki_import_privkey_base64(credentials->privateKey.constData(), nullptr, nullptr, nullptr, &key);
@@ -752,6 +753,11 @@ private:
             return ok;
         }
         credentials->password.fill('\0');
+        if (!hadKey && (methods & SSH_AUTH_METHOD_PUBLICKEY)
+                && !(methods & (SSH_AUTH_METHOD_PASSWORD | SSH_AUTH_METHOD_INTERACTIVE))) {
+            report(tr("The server only accepts keys, choose one for this host"), false, jump);
+            return false;
+        }
         return fail(session, tr("Authentication failed"), false, jump);
     }
 

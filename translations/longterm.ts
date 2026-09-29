@@ -939,6 +939,22 @@
         <source>The server kept asking questions</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Passphrase</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Password</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Answer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The server only accepts keys, choose one for this host</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>ToolbarKeysPage</name>
