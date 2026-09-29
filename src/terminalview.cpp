@@ -595,7 +595,7 @@ void TerminalView::updateTerminalSize()
     // The session's own view decides the size
     if (!m_terminal || m_preview || width() <= 0 || height() <= 0)
         return;
-    m_terminal->resize(int(qBound(1.0, height() / m_cellHeight, 10000.0)), int(qBound(1.0, width() / m_cellWidth, 10000.0)));
+    m_terminal->resize(int(qBound(qreal(1), height() / m_cellHeight, qreal(10000))), int(qBound(qreal(1), width() / m_cellWidth, qreal(10000))));
 }
 
 void TerminalView::updateCellSize()
@@ -642,8 +642,8 @@ void TerminalView::onSizeChanged()
 
 void TerminalView::cellAt(qreal x, qreal y, int *line, int *column) const
 {
-    const int row = int(qBound(0.0, y / m_cellHeight, qreal(m_terminal->rows() - 1)));
-    *column = int(qBound(0.0, x / m_cellWidth, qreal(m_terminal->columns() - 1)));
+    const int row = int(qBound(qreal(0), y / m_cellHeight, qreal(m_terminal->rows() - 1)));
+    *column = int(qBound(qreal(0), x / m_cellWidth, qreal(m_terminal->columns() - 1)));
     *line = m_terminal->scrollbackLines() - m_scrollOffset + row;
 }
 

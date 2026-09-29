@@ -9,6 +9,7 @@ An SSH terminal for Sailfish OS.
 - Password, key and keyboard-interactive (one-time code) login
 - Saved hosts with jump hosts, local port forwards and agent forwarding,
   importable and exportable as ssh_config
+- Shows the operating system of each host as an icon, detected when connecting
 - Ed25519, ECDSA and RSA keys and remembered passwords kept in the Sailfish
   Secrets keychain, private keys exportable with a passphrase
 - Reconnects by itself when the network drops or changes, recovers from changed
