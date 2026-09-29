@@ -38,6 +38,7 @@ class SshSession : public QObject
     Q_PROPERTY(bool prompting READ prompting NOTIFY promptChanged)
     Q_PROPERTY(QString promptText READ promptText NOTIFY promptChanged)
     Q_PROPERTY(bool promptEcho READ promptEcho NOTIFY promptChanged)
+    Q_PROPERTY(QString promptLabel READ promptLabel NOTIFY promptChanged)
     // The prompt asks for the password, which can be saved with the host
     Q_PROPERTY(bool promptCanRemember READ promptCanRemember NOTIFY promptChanged)
     Q_PROPERTY(QString systemId READ systemId NOTIFY systemChanged)
@@ -77,6 +78,7 @@ public:
     bool prompting() const { return m_prompting; }
     QString promptText() const { return m_promptText; }
     bool promptEcho() const { return m_promptEcho; }
+    QString promptLabel() const { return m_promptLabel; }
     QString systemId() const { return m_systemId; }
     QString systemName() const { return m_systemName; }
     void setSystem(const QString &id, const QString &name);
@@ -139,7 +141,7 @@ private slots:
     void onWorkerInfo(const QString &message);
     void onWorkerFailed(const QString &message, bool network);
     void onHostKeyChanged(const QString &fingerprint, const QString &knownHostsPattern);
-    void onWorkerPrompt(const QString &text, bool echo, bool canRemember);
+    void onWorkerPrompt(const QString &text, bool echo, bool canRemember, const QString &label);
     void onWorkerSystem(const QString &id, const QString &name, bool certain);
     void onWorkerFinished();
     void onTerminalOutput(const QByteArray &data);
@@ -158,7 +160,7 @@ private:
     void startConnection();
     void fetchCredentials(const AuthSource &source, const std::function<void(const SshCredentials &)> &done);
     void startWorker(const SshCredentials &credentials, const SshCredentials &jumpCredentials);
-    void setPrompt(bool prompting, const QString &text, bool echo, bool canRemember);
+    void setPrompt(bool prompting, const QString &text, bool echo, bool canRemember, const QString &label);
     void stopWorker();
 
     QString m_name;
@@ -178,6 +180,7 @@ private:
     bool m_prompting;
     QString m_promptText;
     bool m_promptEcho;
+    QString m_promptLabel;
     bool m_promptCanRemember;
     bool m_canRememberPassword;
     bool m_lost;

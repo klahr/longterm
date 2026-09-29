@@ -1,7 +1,7 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
 
-HighlightImage {
+Item {
     property string systemId
 
     readonly property var logos: ({
@@ -43,11 +43,28 @@ HighlightImage {
         return systemId.length > 0 ? "linux" : ""
     }
 
+    readonly property url logoSource: logo.length > 0 ? Qt.resolvedUrl("../images/systems/" + logo + ".svg") : ""
+    readonly property bool tinted: logo === "apple" || (logo === "debian" && Theme.colorScheme === Theme.LightOnDark)
+
     width: Theme.iconSizeSmallPlus
     height: width
-    sourceSize.width: width
-    sourceSize.height: height
-    fillMode: Image.PreserveAspectFit
-    source: logo.length > 0 ? Qt.resolvedUrl("../images/systems/" + logo + ".svg") : ""
-    color: logo === "apple" ? Theme.primaryColor : "transparent"
+
+    Image {
+        anchors.fill: parent
+        visible: !parent.tinted
+        sourceSize.width: width
+        sourceSize.height: height
+        fillMode: Image.PreserveAspectFit
+        source: parent.tinted ? "" : parent.logoSource
+    }
+
+    HighlightImage {
+        anchors.fill: parent
+        visible: parent.tinted
+        sourceSize.width: width
+        sourceSize.height: height
+        fillMode: Image.PreserveAspectFit
+        source: parent.tinted ? parent.logoSource : ""
+        color: Theme.primaryColor
+    }
 }

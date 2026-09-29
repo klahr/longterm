@@ -321,7 +321,7 @@ signals:
     void shellExited();
     void hostKeyChanged(const QString &fingerprint, const QString &knownHostsPattern);
     // canRemember is set when the answer is the account password
-    void promptRequested(const QString &text, bool echo, bool canRemember);
+    void promptRequested(const QString &text, bool echo, bool canRemember, const QString &label);
     void systemDetected(const QString &id, const QString &name, bool certain);
 
 protected:
@@ -686,7 +686,7 @@ private:
                 for (int attempt = 0; attempt < PasswordAttempts && rc != SSH_OK; ++attempt) {
                     QByteArray passphrase;
                     if (!ask(attempt > 0 ? tr("Wrong passphrase, try again.") + QLatin1Char('\n') + prompt : prompt,
-                             false, &passphrase)) {
+                             tr("Passphrase"), false, &passphrase)) {
                         credentials->privateKey.fill('\0');
                         return false;
                     }
@@ -726,7 +726,7 @@ private:
                 if (credentials->password.isEmpty()) {
                     const QString text = attempt > 0 ? tr("Wrong password, try again.") + QLatin1Char('\n') + account
                                                      : account;
-                    if (!ask(text, false, &credentials->password, !jump))
+                    if (!ask(text, tr("Password"), false, &credentials->password, !jump))
                         return false;
                 }
                 rc = ssh_userauth_password(session, nullptr, credentials->password.constData());
@@ -753,6 +753,17 @@ private:
         }
         credentials->password.fill('\0');
         return fail(session, tr("Authentication failed"), false, jump);
+    }
+
+    static QString promptLabel(const QString &prompt)
+    {
+        QString label = prompt.simplified();
+        while (label.endsWith(QLatin1Char(':')) || label.endsWith(QLatin1Char('?')))
+            label.chop(1);
+        label = label.trimmed();
+        if (label.isEmpty() || label.size() > 40)
+            return tr("Answer");
+        return label;
     }
 
     bool keyboardInteractive(ssh_session session, QByteArray password, bool jump)
@@ -783,7 +794,7 @@ private:
                     answer = password;
                     password.fill('\0');
                     password.clear();
-                } else if (!ask(QStringList(header + QStringList(prompt)).join(QLatin1Char('\n')), echo, &answer,
+                } else if (!ask(QStringList(header + QStringList(prompt)).join(QLatin1Char('\n')), promptLabel(prompt), echo, &answer,
                                 !jump && !echo && prompt.contains(QLatin1String("password"), Qt::CaseInsensitive))) {
                     return false;
                 }
@@ -803,11 +814,11 @@ private:
     }
 
     // Blocks until the user answers, returns false when the worker is stopped instead
-    bool ask(const QString &text, bool echo, QByteArray *answer, bool canRemember = false)
+    bool ask(const QString &text, const QString &label, bool echo, QByteArray *answer, bool canRemember = false)
     {
         QMutexLocker locker(&m_promptMutex);
         m_promptAnswered = false;
-        emit promptRequested(text, echo, canRemember);
+        emit promptRequested(text, echo, canRemember, label);
         while (!m_promptAnswered && !m_stop.loadAcquire())
             m_promptCondition.wait(&m_promptMutex);
         if (!m_promptAnswered)
@@ -1329,7 +1340,7 @@ void SshSession::answerPrompt(const QString &answer, bool remember)
         if (remember && m_canRememberPassword)
             emit passwordRemembered(answer);
     }
-    setPrompt(false, QString(), false, false);
+    setPrompt(false, QString(), false, false, QString());
     m_worker->answerPrompt(answer.toUtf8());
 }
 
@@ -1554,9 +1565,9 @@ void SshSession::onWorkerSystem(const QString &id, const QString &name, bool cer
     setSystem(id, name);
 }
 
-void SshSession::onWorkerPrompt(const QString &text, bool echo, bool canRemember)
+void SshSession::onWorkerPrompt(const QString &text, bool echo, bool canRemember, const QString &label)
 {
-    setPrompt(true, text, echo, canRemember);
+    setPrompt(true, text, echo, canRemember, label);
 }
 
 void SshSession::onWorkerFinished()
@@ -1565,7 +1576,7 @@ void SshSession::onWorkerFinished()
     m_worker->deleteLater();
     m_worker = nullptr;
     m_localAddress.clear();
-    setPrompt(false, QString(), false, false);
+    setPrompt(false, QString(), false, false, QString());
     setState(Disconnected);
     if (lost)
         emit connectionLost();
@@ -1603,14 +1614,15 @@ void SshSession::setState(State state)
     emit stateChanged();
 }
 
-void SshSession::setPrompt(bool prompting, const QString &text, bool echo, bool canRemember)
+void SshSession::setPrompt(bool prompting, const QString &text, bool echo, bool canRemember, const QString &label)
 {
     if (m_prompting == prompting && m_promptText == text && m_promptEcho == echo
-            && m_promptCanRemember == canRemember)
+            && m_promptCanRemember == canRemember && m_promptLabel == label)
         return;
     m_prompting = prompting;
     m_promptText = text;
     m_promptEcho = echo;
+    m_promptLabel = label;
     m_promptCanRemember = canRemember;
     emit promptChanged();
 }

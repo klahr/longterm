@@ -317,7 +317,7 @@ Page {
                             visible: session.prompting
                             echoMode: session.promptEcho ? TextInput.Normal : TextInput.Password
                             inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
-                            placeholderText: qsTr("Answer")
+                            placeholderText: session.promptLabel.length > 0 ? session.promptLabel : qsTr("Answer")
                             label: placeholderText
                             EnterKey.iconSource: "image://theme/icon-m-enter-accept"
                             EnterKey.onClicked: submit()
