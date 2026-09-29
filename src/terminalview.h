@@ -127,7 +127,6 @@ private:
     qreal m_radius;
     // The terminal's scrolledLines() when last drawn
     qint64 m_scrolledLines;
-    // The terminal's droppedLines() when last drawn, selection lines move with it
     qint64 m_droppedLines;
 };
 

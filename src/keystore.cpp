@@ -87,7 +87,6 @@ QByteArray keyTypeName(const QByteArray &publicKeyBlob)
     return name;
 }
 
-// FIDO keys need the authenticator they were made on, which the phone does not have
 bool isSecurityKey(const char *typeName)
 {
     return typeName && qstrncmp(typeName, "sk-", 3) == 0;
@@ -109,7 +108,6 @@ KeyStore::KeyStore(SecretVault *vault, QObject *parent)
 
 KeyStore::~KeyStore()
 {
-    // Keys still being made or decrypted, their results never arrive now
     for (QFutureWatcher<ssh_key> *watcher : findChildren<QFutureWatcher<ssh_key> *>(QString(), Qt::FindDirectChildrenOnly)) {
         watcher->disconnect(this);
         watcher->waitForFinished();
@@ -221,7 +219,6 @@ void KeyStore::generateKey(const QString &name, const QString &type)
     QFutureWatcher<ssh_key> *watcher = new QFutureWatcher<ssh_key>(this);
     connect(watcher, &QFutureWatcher<ssh_key>::finished, this, [this, watcher, name]() {
         ssh_key key = watcher->result();
-        // Off the list the destructor frees pending keys from
         watcher->setParent(nullptr);
         watcher->deleteLater();
         --m_generating;
@@ -258,7 +255,6 @@ QString KeyStore::encryptionProblem(const QByteArray &privateKey)
     QByteArray kdf;
     if (!openSshPublicKey(privateKey, &blob, &encrypted, &rounds, &cipher, &kdf) || !encrypted)
         return QString();
-    // libssh has no decryption for the AEAD ciphers and crashes on them
     static const QList<QByteArray> ciphers = {
         "aes128-ctr", "aes192-ctr", "aes256-ctr", "aes128-cbc", "aes192-cbc", "aes256-cbc", "3des-cbc"
     };
@@ -301,11 +297,9 @@ void KeyStore::importKey(const QString &name, const QString &privateKey, const Q
     }
     ++m_generating;
     emit busyChanged();
-    // bcrypt rounds can take seconds, so the key is decrypted off the UI thread
     QFutureWatcher<ssh_key> *watcher = new QFutureWatcher<ssh_key>(this);
     connect(watcher, &QFutureWatcher<ssh_key>::finished, this, [this, watcher, name, passphrase]() {
         ssh_key key = watcher->result();
-        // Off the list the destructor frees pending keys from
         watcher->setParent(nullptr);
         watcher->deleteLater();
         --m_generating;
@@ -393,7 +387,6 @@ void KeyStore::loadIndex()
         key.publicKey = m_index.value(QStringLiteral("publicKey")).toString();
         key.fingerprint = m_index.value(QStringLiteral("fingerprint")).toString();
         key.encrypted = m_index.value(QStringLiteral("encrypted"), false).toBool();
-        // Keys sharing an id would share a secret, removing one would lose both
         if (key.id.isEmpty() || indexOf(key.id) >= 0)
             continue;
         m_keys.append(key);

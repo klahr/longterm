@@ -139,7 +139,6 @@ void Terminal::paste(const QString &text)
     QString normalized = text;
     normalized.replace(QStringLiteral("\r\n"), QStringLiteral("\r"));
     normalized.replace(QLatin1Char('\n'), QLatin1Char('\r'));
-    // Pasted text ending the bracket early would have the rest run as typed
     normalized.remove(QStringLiteral("\x1b[201~"));
     vterm_keyboard_start_paste(m_vterm);
     emit outputReady(normalized.toUtf8());
@@ -256,7 +255,6 @@ int Terminal::onClearScrollback(void *user)
     Terminal *terminal = static_cast<Terminal *>(user);
     terminal->m_droppedLines += terminal->m_scrollback.size();
     terminal->m_scrollback.clear();
-    // Nothing on screen changes, but views scrolled back have less to show
     emit terminal->contentChanged();
     return 1;
 }

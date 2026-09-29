@@ -8,7 +8,6 @@ import "pages"
 ApplicationWindow {
     id: app
 
-    // Names, prompts and errors can come from servers or pasted configs, never render them as HTML
     _defaultLabelFormat: Text.PlainText
 
     // When each session last notified, so a stream of bells makes one notification

@@ -65,7 +65,6 @@ void appendCellText(QString &text, const VTermScreenCell &cell)
         text.append(QLatin1Char(' '));
         return;
     }
-    // Appended as they are, a QString for each made searching the scrollback slow
     for (int i = 0; i < VTERM_MAX_CHARS_PER_CELL && cell.chars[i]; ++i) {
         const uint32_t ucs4 = cell.chars[i];
         if (ucs4 > 0x10ffff) {
@@ -596,7 +595,6 @@ void TerminalView::updateTerminalSize()
     // The session's own view decides the size
     if (!m_terminal || m_preview || width() <= 0 || height() <= 0)
         return;
-    // Bounded as doubles first, an infinite size does not fit an int
     m_terminal->resize(int(qBound(1.0, height() / m_cellHeight, 10000.0)), int(qBound(1.0, width() / m_cellWidth, 10000.0)));
 }
 
@@ -703,7 +701,6 @@ void TerminalView::onContentChanged()
         if (qMax(m_anchorLine, m_endLine) < dropped) {
             clearSelection();
         } else {
-            // A start that was dropped moves to the oldest line left
             if (m_anchorLine < dropped)
                 m_anchorColumn = 0;
             if (m_endLine < dropped)

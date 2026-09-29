@@ -99,7 +99,6 @@ void KnownHosts::remove(const QString &line)
             kept.append(line);
     }
     file.close();
-    // Written aside and renamed, so an interrupted write cannot lose the other keys
     QSaveFile saved(file.fileName());
     if (found && saved.open(QIODevice::WriteOnly)) {
         saved.write(kept);

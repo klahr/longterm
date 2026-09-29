@@ -106,7 +106,6 @@ SshAgent::~SshAgent()
 QByteArray SshAgent::process(QByteArray *input)
 {
     QByteArray replies;
-    // Removed once at the end, removing each request would be quadratic
     int pos = 0;
     while (input->size() - pos >= 4) {
         const quint32 length = uint32At(*input, pos);

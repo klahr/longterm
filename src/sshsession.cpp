@@ -42,22 +42,15 @@ static const int PasswordAttempts = 3;
 static const int MaxUnconsumedBytes = 256 * 1024;
 // Servers asking this many keyboard-interactive rounds are going in circles
 static const int MaxInteractiveRounds = 32;
-// Forwarded data waiting for a slow local client beyond which the channel is
-// left unread, so SSH flow control holds back the server
 static const int MaxForwardBuffer = 256 * 1024;
 // Same as libssh's own SSH_OPTIONS_TIMEOUT below
 static const int ConnectTimeoutMs = 15 * 1000;
-// Each address but the last gets at most this, so an unreachable IPv6
-// address leaves time for the IPv4 one
 static const int AddressTimeoutMs = 5 * 1000;
-// Unacknowledged data drops the connection after this, the keepalive makes
-// sure there is some, so a peer gone silent is noticed within a minute and a half
 static const unsigned int UserTimeoutMs = 30 * 1000;
 
 // Idle time before the worker sends traffic to keep servers and NAT routers
 // from dropping the connection
 static const int KeepAliveIntervalMs = 60 * 1000;
-// How long closing a session waits for its worker before leaving it to finish
 static const int StopWaitMs = 500;
 
 // Carries the target connection's bytes over a direct-tcpip channel of the
@@ -75,7 +68,6 @@ public:
     {
     }
 
-    // The worker joins the thread first, and has forgotten the jump socket by then
     ~JumpProxy() override
     {
         ssh_disconnect(m_session);
@@ -287,7 +279,6 @@ private:
     // A forwarded connection, or an agent channel when fd is -1
     struct Stream {
         ssh_channel channel;
-        // Below zero for an agent channel, whose replies wait in toSocket
         int fd;
         QByteArray toSocket;
         QByteArray agentInput;
@@ -310,7 +301,6 @@ private:
     static QString knownHostsPattern(const QByteArray &host, int port)
     {
         // libssh writes plain entries, "host" for port 22 and "[host]:port" otherwise
-        // libssh lowercases the host name it writes
         const QString name = QString::fromUtf8(host.toLower());
         return port == 22 ? name : QStringLiteral("[%1]:%2").arg(name).arg(port);
     }
@@ -340,7 +330,6 @@ private:
     // interrupt the connect and anything libssh later waits for
     bool connectSocket(ssh_session session, const QByteArray &host, int port, bool jump)
     {
-        // getaddrinfo takes larger numbers modulo 65536
         if (port < 1 || port > 65535) {
             report(tr("Invalid port %1").arg(port), false, jump);
             return false;
@@ -393,7 +382,6 @@ private:
             return false;
         }
 
-        // libssh expects a blocking socket, it closes it once handOverSocket() has run
         fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) & ~O_NONBLOCK);
         setsockopt(fd, IPPROTO_TCP, TCP_USER_TIMEOUT, &UserTimeoutMs, sizeof(UserTimeoutMs));
         watchSocket(fd);
@@ -401,9 +389,6 @@ private:
         return true;
     }
 
-    // libssh never closes a descriptor given through SSH_OPTIONS_FD, so once
-    // ssh_connect() has adopted it, make it libssh's own to close with the session.
-    // Sets the session error, so call it after reporting.
     static void handOverSocket(ssh_session session)
     {
         const socket_t none = SSH_INVALID_SOCKET;
@@ -414,7 +399,6 @@ private:
     {
         QMutexLocker locker(&m_socketMutex);
         m_sockets.append(fd);
-        // stop() sets the flag before taking the lock, so one of the two shuts it down
         if (m_stop.loadAcquire())
             ::shutdown(fd, SHUT_RDWR);
     }
@@ -480,7 +464,6 @@ private:
         if (m_config.hasJump ? !connectJump(session)
                              : !connectSocket(session, m_config.host, m_config.port, false))
             return false;
-        // Even when stopped, so the socket passes to libssh, a stop() makes it fail at once
         const bool connected = ssh_connect(session) == SSH_OK;
         if (!connected)
             fail(session, tr("Connection failed"), true);
@@ -545,7 +528,6 @@ private:
             rc = ssh_pki_import_privkey_base64(credentials->privateKey.constData(), nullptr, nullptr, nullptr, &key);
             // Kept encrypted, so its passphrase is asked for on every connect
             const bool encrypted = rc != SSH_OK && KeyStore::isEncrypted(credentials->privateKey);
-            // Keys stored before the check was added
             const QString problem = encrypted ? KeyStore::encryptionProblem(credentials->privateKey) : QString();
             if (!problem.isEmpty()) {
                 credentials->privateKey.fill('\0');
@@ -832,13 +814,10 @@ private:
             }
 
             if (stream->fd < 0) {
-                // Requests wait while a client that does not read has replies pending
                 if (m_agent && stream->toSocket.size() < MaxForwardBuffer)
                     stream->toSocket.append(m_agent->process(&stream->agentInput));
-                // No more than the window, a write beyond it would block the whole connection
                 const int length = int(qMin<quint32>(quint32(stream->toSocket.size()), ssh_channel_window_size(stream->channel)));
                 if (length > 0 && ssh_channel_write(stream->channel, stream->toSocket.constData(), uint32_t(length)) == SSH_ERROR) {
-                    // A client leaving closes its own channel, not the connection
                     if (!ssh_is_connected(session))
                         return fail(session, tr("Write failed"), true);
                     stream->closed = true;
@@ -857,13 +836,10 @@ private:
         return true;
     }
 
-    // Whether to read more from the channel, which is left to the server's
-    // flow control once enough waits
     static bool wantsChannelData(const Stream *stream)
     {
         if (stream->channelEof || stream->toSocket.size() >= MaxForwardBuffer)
             return false;
-        // Room for a whole request of the largest size the agent takes
         return stream->fd >= 0 || stream->agentInput.size() < 2 * MaxForwardBuffer;
     }
 
@@ -884,7 +860,6 @@ private:
     bool readSocket(ssh_session session, Stream *stream)
     {
         char buffer[16384];
-        // A write beyond the server's window would block the whole connection
         const uint32_t window = ssh_channel_window_size(stream->channel);
         if (window == 0)
             return true;
@@ -1007,7 +982,6 @@ private:
             for (Stream *stream : m_streams) {
                 if (stream->fd < 0)
                     continue;
-                // Read again once the server has opened its window
                 short events = stream->socketEof || ssh_channel_window_size(stream->channel) == 0 ? 0 : POLLIN;
                 if (!stream->toSocket.isEmpty())
                     events |= POLLOUT;
@@ -1015,7 +989,6 @@ private:
                 polledStreams.append(stream);
             }
 
-            // Blocking writes above take in packets that libssh then holds, where poll() cannot see them
             bool buffered = !throttled() && (ssh_channel_poll(channel, 0) > 0 || ssh_channel_poll(channel, 1) > 0);
             for (int i = 0; i < m_streams.size() && !buffered; ++i) {
                 const Stream *stream = m_streams.at(i);
@@ -1058,7 +1031,6 @@ private:
 
     void report(const QString &message, bool network, bool jump)
     {
-        // What stop() breaks is no failure, and must not read as a lost connection
         if (m_stop.loadAcquire())
             return;
         emit failed(jump ? tr("Jump host: %1").arg(message) : message, network);
@@ -1180,7 +1152,6 @@ void SshSession::trustNewHostKey()
                 kept.append(line);
                 continue;
             }
-            // A line naming other hosts too keeps trusting the key for them
             hosts.removeAll(pattern);
             if (!hosts.isEmpty())
                 kept.append(hosts.join(',') + line.mid(space));
@@ -1493,12 +1464,10 @@ void SshSession::stopWorker()
         return;
     m_worker->disconnect(this);
     m_worker->stop();
-    // stop() cannot break a DNS lookup, a worker still in one finishes on its own
     if (m_worker->wait(StopWaitMs)) {
         delete m_worker;
     } else {
         connect(m_worker, &QThread::finished, m_worker, &QObject::deleteLater);
-        // It may have finished between the wait and the connect
         if (m_worker->isFinished())
             m_worker->deleteLater();
     }

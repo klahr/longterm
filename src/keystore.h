@@ -41,7 +41,6 @@ public:
     // Returns an empty string for a usable key, otherwise why it is not. An
     // encrypted key without its passphrase is usable, it is asked for on connect.
     Q_INVOKABLE QString validatePrivateKey(const QString &privateKey, const QString &passphrase) const;
-    // Why an encrypted key cannot be decrypted here, or empty
     static QString encryptionProblem(const QByteArray &privateKey);
     // Whether the key only loads with a passphrase
     static bool isEncrypted(const QByteArray &privateKey);

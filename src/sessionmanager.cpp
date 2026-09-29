@@ -128,7 +128,6 @@ void SessionManager::onHostsChanged()
         else
             deleted.append(session);
     }
-    // They could not come back after a restart without the host
     for (SshSession *session : deleted)
         closeSession(session);
 }

@@ -29,7 +29,6 @@ public:
     // Lines moved into the scrollback minus those taken back, which keeps
     // counting when the oldest lines are dropped
     qint64 scrolledLines() const { return m_scrolledLines; }
-    // Oldest lines dropped from the scrollback so far, by its limit or by clearing it
     qint64 droppedLines() const { return m_droppedLines; }
     QString title() const { return m_title; }
     VTermPos cursorPosition() const { return m_cursor; }

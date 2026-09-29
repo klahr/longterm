@@ -9,7 +9,6 @@
 // A damaged file can claim any number of entries
 static const int MaxHosts = 1000;
 
-// Pasted text can carry line breaks, which would end up as extra lines in exportConfig
 static QString singleLine(const QString &text)
 {
     return QString(text).replace(QRegExp(QStringLiteral("[\\x0000-\\x001f\\x007f]")), QStringLiteral(" ")).trimmed();
@@ -196,8 +195,6 @@ QString HostStore::hostIdAt(int row) const
     return row >= 0 && row < m_hosts.size() ? m_hosts.at(row).id : QString();
 }
 
-// Splits a value the way OpenSSH does, with double quotes around arguments
-// that have spaces and a # starting an argument commenting out the rest
 static QStringList configArguments(const QString &text)
 {
     QStringList arguments;
@@ -317,8 +314,6 @@ int HostStore::importConfig(const QString &config)
         } else if (key == QLatin1String("user")) {
             entry->user = value;
         } else if (key == QLatin1String("proxyjump")) {
-            // Only the first hop, and only when it names a saved host, as
-            // [user@]host[:port] where the user and port are the saved host's own
             QString jump = value.split(QLatin1Char(',')).value(0).trimmed();
             jump = jump.mid(jump.lastIndexOf(QLatin1Char('@')) + 1);
             if (jump.startsWith(QLatin1Char('[')) && jump.contains(QLatin1Char(']')))
@@ -329,7 +324,6 @@ int HostStore::importConfig(const QString &config)
         } else if (key == QLatin1String("forwardagent")) {
             entry->forwardAgent = value.toLower() == QLatin1String("yes");
         } else if (key == QLatin1String("localforward")) {
-            // "[bind:]port host:hostport", sockets and dynamic forwards are left out
             const QString target = arguments.value(1);
             if (arguments.size() == 2 && isPort(value.section(QLatin1Char(':'), -1))
                     && target.contains(QLatin1Char(':')) && isPort(target.section(QLatin1Char(':'), -1)))
@@ -337,7 +331,6 @@ int HostStore::importConfig(const QString &config)
         }
     }
 
-    // Exported names have their spaces turned into dashes
     const auto findName = [this](const QString &name) {
         int row = indexOfName(name);
         for (int other = 0; row < 0 && other < m_hosts.size(); ++other) {
