@@ -39,6 +39,7 @@ int main(int argc, char *argv[])
     SecretVault vault;
     KeyStore keyStore(&vault);
     HostStore hostStore(&vault);
+    QObject::connect(&keyStore, &KeyStore::keyRemoved, &hostStore, &HostStore::forgetKey);
     SessionManager sessionManager(&vault, &hostStore, &appSettings);
     KnownHosts knownHosts;
 

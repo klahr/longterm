@@ -25,6 +25,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include "keystore.h"
 #include "secretvault.h"
 #include "sshagent.h"
 #include "terminal.h"
@@ -397,9 +398,31 @@ private:
         if (!credentials->privateKey.isEmpty()) {
             ssh_key key = nullptr;
             rc = ssh_pki_import_privkey_base64(credentials->privateKey.constData(), nullptr, nullptr, nullptr, &key);
+            // Kept encrypted, so its passphrase is asked for on every connect
+            const bool encrypted = rc != SSH_OK && KeyStore::isEncrypted(credentials->privateKey);
+            if (encrypted) {
+                const QString prompt = jump ? tr("Key passphrase for the jump host %1@%2").arg(QString::fromUtf8(m_config.jumpUser),
+                                                                                              QString::fromUtf8(m_config.jumpHost))
+                                            : tr("Key passphrase for %1@%2").arg(QString::fromUtf8(m_config.user),
+                                                                                QString::fromUtf8(m_config.host));
+                for (int attempt = 0; attempt < PasswordAttempts && rc != SSH_OK; ++attempt) {
+                    QByteArray passphrase;
+                    if (!ask(attempt > 0 ? tr("Wrong passphrase, try again.") + QLatin1Char('\n') + prompt : prompt,
+                             false, &passphrase)) {
+                        credentials->privateKey.fill('\0');
+                        return false;
+                    }
+                    rc = ssh_pki_import_privkey_base64(credentials->privateKey.constData(), passphrase.constData(),
+                                                       nullptr, nullptr, &key);
+                    passphrase.fill('\0');
+                }
+            }
             credentials->privateKey.fill('\0');
-            if (rc != SSH_OK)
-                return fail(session, tr("Could not load private key"), false, jump);
+            if (rc != SSH_OK) {
+                // The session's own error is about the server, not the key
+                report(encrypted ? tr("Wrong key passphrase") : tr("Could not load private key"), false, jump);
+                return false;
+            }
             rc = ssh_userauth_publickey(session, nullptr, key);
             if (!jump && m_config.forwardAgent && (rc == SSH_AUTH_SUCCESS || rc == SSH_AUTH_PARTIAL)) {
                 m_agent = new SshAgent(key);
@@ -989,6 +1012,22 @@ void SshSession::setSecret(SecretVault *vault, const QString &secretId, SecretKi
     m_auth.vault = vault;
     m_auth.secretId = secretId;
     m_auth.kind = kind;
+}
+
+void SshSession::clearStoredSecret()
+{
+    if (m_auth.vault)
+        m_auth = AuthSource();
+}
+
+void SshSession::setEndpoint(const QString &host, int port, const QString &user)
+{
+    if (m_host == host && m_port == port && m_user == user)
+        return;
+    m_host = host;
+    m_port = port;
+    m_user = user;
+    emit endpointChanged();
 }
 
 void SshSession::connectWithSecret(SecretVault *vault, const QString &secretId, SecretKind kind)

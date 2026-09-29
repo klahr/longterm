@@ -116,6 +116,21 @@ void HostStore::rememberPassword(const QString &hostId, const QString &password)
     });
 }
 
+void HostStore::forgetKey(const QString &keyId)
+{
+    bool changed = false;
+    for (int row = 0; row < m_hosts.size(); ++row) {
+        if (m_hosts.at(row).keyId != keyId)
+            continue;
+        m_hosts[row].keyId.clear();
+        m_hosts[row].forwardAgent = false;
+        emit dataChanged(index(row), index(row));
+        changed = true;
+    }
+    if (changed)
+        save();
+}
+
 void HostStore::removeHost(const QString &hostId)
 {
     const int row = indexOf(hostId);

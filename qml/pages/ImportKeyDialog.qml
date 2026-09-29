@@ -53,6 +53,7 @@ Dialog {
                 width: parent.width
                 label: qsTr("Passphrase, if the key has one")
                 placeholderText: label
+                description: qsTr("Leave it empty to be asked for it on every connect instead")
             }
 
             Label {
@@ -68,7 +69,10 @@ Dialog {
             Label {
                 x: Theme.horizontalPageMargin
                 width: parent.width - 2 * Theme.horizontalPageMargin
-                text: qsTr("The key is stored in the device keychain without its passphrase.")
+                text: passphraseField.text.length > 0
+                      ? qsTr("The key is stored in the device keychain without its passphrase.")
+                      : qsTr("The key is stored in the device keychain as it is. If it has a passphrase, "
+                             + "you type it each time you connect with the key.")
                 wrapMode: Text.Wrap
                 font.pixelSize: Theme.fontSizeSmall
                 color: Theme.secondaryHighlightColor

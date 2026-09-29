@@ -60,6 +60,8 @@ public:
     Q_INVOKABLE void removeHost(const QString &hostId);
     // Keeps a password typed while connecting, the host logs in with it from now on
     void rememberPassword(const QString &hostId, const QString &password);
+    // Hosts that used the deleted key ask for a password instead
+    void forgetKey(const QString &keyId);
     Q_INVOKABLE QVariantMap host(const QString &hostId) const;
     Q_INVOKABLE QString hostIdAt(int row) const;
     Q_INVOKABLE int indexOf(const QString &hostId) const;

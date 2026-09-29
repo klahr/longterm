@@ -8,6 +8,8 @@ Page {
     property string name
     property string publicKey
     property string fingerprint
+    // Kept with its passphrase, asked for on every connect
+    property bool encrypted
     property bool privateKeyCopied
 
     allowedOrientations: Orientation.All
@@ -29,7 +31,8 @@ Page {
         PullDownMenu {
             MenuItem {
                 text: qsTr("Export private key")
-                onClicked: pageStack.animatorPush(Qt.resolvedUrl("ExportKeyDialog.qml"), { keyId: page.keyId })
+                onClicked: pageStack.animatorPush(Qt.resolvedUrl("ExportKeyDialog.qml"),
+                                                  { keyId: page.keyId, encrypted: page.encrypted })
             }
         }
 

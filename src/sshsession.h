@@ -26,9 +26,9 @@ class SshSession : public QObject
     Q_PROPERTY(QString startupScript READ startupScript WRITE setStartupScript NOTIFY startupScriptChanged)
     // Empty follows the app's color scheme
     Q_PROPERTY(QString colorScheme READ colorScheme WRITE setColorScheme NOTIFY colorSchemeChanged)
-    Q_PROPERTY(QString host READ host CONSTANT)
-    Q_PROPERTY(int port READ port CONSTANT)
-    Q_PROPERTY(QString user READ user CONSTANT)
+    Q_PROPERTY(QString host READ host NOTIFY endpointChanged)
+    Q_PROPERTY(int port READ port NOTIFY endpointChanged)
+    Q_PROPERTY(QString user READ user NOTIFY endpointChanged)
     Q_PROPERTY(State state READ state NOTIFY stateChanged)
     Q_PROPERTY(QString errorString READ errorString NOTIFY errorStringChanged)
     Q_PROPERTY(Terminal *terminal READ terminal CONSTANT)
@@ -86,6 +86,9 @@ public:
     // A vault of null means no stored secret, only what the server prompts for
     void setJumpHost(const QString &host, int port, const QString &user,
                      SecretVault *vault, const QString &secretId, SecretKind kind);
+    void clearJumpHost() { m_hasJump = false; }
+    // Takes effect on the next connect, a live connection keeps its own
+    void setEndpoint(const QString &host, int port, const QString &user);
     void setForwardAgent(bool forwardAgent) { m_forwardAgent = forwardAgent; }
     // Entries are "localPort:host:remotePort"
     void setLocalForwards(const QStringList &forwards) { m_localForwards = forwards; }
@@ -96,6 +99,8 @@ public:
     void connectWithSecret(SecretVault *vault, const QString &secretId, SecretKind kind);
     // Sets up reconnect() for a session that was never connected
     void setSecret(SecretVault *vault, const QString &secretId, SecretKind kind);
+    // Forgets a stored key or password, keeping one typed while connecting
+    void clearStoredSecret();
     Q_INVOKABLE void disconnectFromHost();
     // Connects again the same way as the last attempt
     Q_INVOKABLE void reconnect();
@@ -116,6 +121,7 @@ signals:
     void shellExited();
     void hostKeyMismatchChanged();
     void promptChanged();
+    void endpointChanged();
     // The user asked to save the password they typed
     void passwordRemembered(const QString &password);
     // An established connection dropped for network reasons and has wound down
@@ -151,9 +157,9 @@ private:
     QString m_name;
     QString m_startupScript;
     QString m_colorScheme;
-    const QString m_host;
-    const int m_port;
-    const QString m_user;
+    QString m_host;
+    int m_port;
+    QString m_user;
     State m_state;
     QString m_errorString;
     SshWorker *m_worker;

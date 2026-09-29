@@ -53,8 +53,10 @@ private:
     };
 
     SshSession *addSession(const QString &name, const QString &host, int port, const QString &user);
-    // Applies what a saved host adds to the plain connection
+    // Applies the saved host's settings, again whenever they change, so the
+    // next connect uses them
     void configure(SshSession *session, const HostStore::Host &host);
+    void onHostsChanged();
     void rememberPassword(SshSession *session, const QString &password);
     void onNetworkChanged();
     void load();

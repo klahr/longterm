@@ -60,7 +60,8 @@ Page {
                 keyId: model.keyId,
                 name: model.name,
                 publicKey: model.publicKey,
-                fingerprint: model.fingerprint
+                fingerprint: model.fingerprint,
+                encrypted: model.encrypted
             })
 
             Column {
@@ -76,7 +77,7 @@ Page {
                 }
                 Label {
                     width: parent.width
-                    text: model.fingerprint
+                    text: model.encrypted ? qsTr("Asks for passphrase \u00b7 %1").arg(model.fingerprint) : model.fingerprint
                     truncationMode: TruncationMode.Fade
                     font.pixelSize: Theme.fontSizeExtraSmall
                     color: delegate.highlighted ? Theme.secondaryHighlightColor : Theme.secondaryColor

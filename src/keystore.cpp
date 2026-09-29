@@ -12,6 +12,61 @@
 
 #include "secretvault.h"
 
+namespace {
+
+bool readString(const QByteArray &data, int *pos, QByteArray *value)
+{
+    if (data.size() - *pos < 4)
+        return false;
+    const uchar *p = reinterpret_cast<const uchar *>(data.constData()) + *pos;
+    const quint32 length = quint32(p[0]) << 24 | quint32(p[1]) << 16 | quint32(p[2]) << 8 | quint32(p[3]);
+    if (quint32(data.size() - *pos - 4) < length)
+        return false;
+    *value = data.mid(*pos + 4, int(length));
+    *pos += 4 + int(length);
+    return true;
+}
+
+// The OpenSSH format keeps the public key readable in front of the encrypted part
+bool openSshPublicKey(const QByteArray &privateKey, QByteArray *publicKeyBlob, bool *encrypted)
+{
+    static const QByteArray begin("-----BEGIN OPENSSH PRIVATE KEY-----");
+    static const QByteArray end("-----END OPENSSH PRIVATE KEY-----");
+    const int start = privateKey.indexOf(begin);
+    const int stop = privateKey.indexOf(end);
+    if (start < 0 || stop < start)
+        return false;
+    const QByteArray data = QByteArray::fromBase64(privateKey.mid(start + begin.size(), stop - start - begin.size()).simplified()
+                                                   .replace(' ', QByteArray()));
+    static const QByteArray magic("openssh-key-v1", 15);
+    if (!data.startsWith(magic))
+        return false;
+    int pos = magic.size();
+    QByteArray cipher;
+    QByteArray kdf;
+    QByteArray kdfOptions;
+    if (!readString(data, &pos, &cipher) || !readString(data, &pos, &kdf) || !readString(data, &pos, &kdfOptions)
+            || data.size() - pos < 4)
+        return false;
+    pos += 4; // number of keys, always one
+    if (!readString(data, &pos, publicKeyBlob))
+        return false;
+    if (encrypted)
+        *encrypted = cipher != "none";
+    return true;
+}
+
+// The first field of a public key blob
+QByteArray keyTypeName(const QByteArray &publicKeyBlob)
+{
+    int pos = 0;
+    QByteArray name;
+    readString(publicKeyBlob, &pos, &name);
+    return name;
+}
+
+}
+
 KeyStore::KeyStore(SecretVault *vault, QObject *parent)
     : QAbstractListModel(parent)
     , m_vault(vault)
@@ -44,6 +99,7 @@ QVariant KeyStore::data(const QModelIndex &index, int role) const
     case NameRole: return key.name;
     case PublicKeyRole: return key.publicKey;
     case FingerprintRole: return key.fingerprint;
+    case EncryptedRole: return key.encrypted;
     default: return QVariant();
     }
 }
@@ -55,6 +111,7 @@ QHash<int, QByteArray> KeyStore::roleNames() const
     roles[NameRole] = "name";
     roles[PublicKeyRole] = "publicKey";
     roles[FingerprintRole] = "fingerprint";
+    roles[EncryptedRole] = "encrypted";
     return roles;
 }
 
@@ -76,6 +133,11 @@ QString KeyStore::validatePrivateKey(const QString &privateKey, const QString &p
 {
     if (privateKey.trimmed().isEmpty())
         return tr("Paste a private key");
+    if (passphrase.isEmpty() && isEncrypted(privateKey.toUtf8())) {
+        QByteArray blob;
+        return openSshPublicKey(privateKey.toUtf8(), &blob, nullptr) ? QString()
+                                                                     : tr("This older key format needs its passphrase to be imported");
+    }
     ssh_key key = nullptr;
     const QByteArray passphraseData = passphrase.toUtf8();
     if (ssh_pki_import_privkey_base64(privateKey.trimmed().toUtf8().constData(),
@@ -128,8 +190,22 @@ void KeyStore::generateKey(const QString &name, const QString &type)
     }));
 }
 
+bool KeyStore::isEncrypted(const QByteArray &privateKey)
+{
+    QByteArray blob;
+    bool encrypted = false;
+    if (openSshPublicKey(privateKey, &blob, &encrypted))
+        return encrypted;
+    // PEM, "Proc-Type: 4,ENCRYPTED" or "BEGIN ENCRYPTED PRIVATE KEY"
+    return privateKey.contains("ENCRYPTED");
+}
+
 void KeyStore::importKey(const QString &name, const QString &privateKey, const QString &passphrase)
 {
+    if (passphrase.isEmpty() && isEncrypted(privateKey.toUtf8())) {
+        addEncryptedKey(name, privateKey);
+        return;
+    }
     ssh_key key = nullptr;
     const QByteArray passphraseData = passphrase.toUtf8();
     if (ssh_pki_import_privkey_base64(privateKey.trimmed().toUtf8().constData(),
@@ -155,6 +231,7 @@ void KeyStore::removeKey(const QString &keyId)
         emit countChanged();
         break;
     }
+    emit keyRemoved(keyId);
 
     m_vault->remove(keyId, this, [this](const QString &error) {
         if (!error.isEmpty())
@@ -167,6 +244,11 @@ void KeyStore::exportPrivateKey(const QString &keyId, const QString &passphrase)
     m_vault->fetch(keyId, this, [this, keyId, passphrase](const QByteArray &secret, const QString &error) {
         if (!error.isEmpty()) {
             setError(tr("Could not read private key: %1").arg(error));
+            return;
+        }
+        if (isEncrypted(secret)) {
+            setError(QString());
+            emit privateKeyExported(keyId, QString::fromLatin1(secret));
             return;
         }
         ssh_key key = nullptr;
@@ -199,6 +281,7 @@ void KeyStore::loadIndex()
         key.name = m_index.value(QStringLiteral("name")).toString();
         key.publicKey = m_index.value(QStringLiteral("publicKey")).toString();
         key.fingerprint = m_index.value(QStringLiteral("fingerprint")).toString();
+        key.encrypted = m_index.value(QStringLiteral("encrypted"), false).toBool();
         m_keys.append(key);
     }
     m_index.endArray();
@@ -214,6 +297,7 @@ void KeyStore::saveIndex()
         m_index.setValue(QStringLiteral("name"), m_keys.at(i).name);
         m_index.setValue(QStringLiteral("publicKey"), m_keys.at(i).publicKey);
         m_index.setValue(QStringLiteral("fingerprint"), m_keys.at(i).fingerprint);
+        m_index.setValue(QStringLiteral("encrypted"), m_keys.at(i).encrypted);
     }
     m_index.endArray();
     m_index.sync();
@@ -221,34 +305,64 @@ void KeyStore::saveIndex()
 
 void KeyStore::addKey(const QString &name, ssh_key_struct *sshKey)
 {
+    Key key;
     char *privateBase64 = nullptr;
+    if (!describeKey(name, sshKey, &key)
+            || ssh_pki_export_privkey_base64(sshKey, nullptr, nullptr, nullptr, &privateBase64) != SSH_OK) {
+        ssh_string_free_char(privateBase64);
+        setError(tr("Could not export key"));
+        return;
+    }
+    key.encrypted = false;
+    QByteArray privateKey(privateBase64);
+    std::fill(privateBase64, privateBase64 + qstrlen(privateBase64), '\0');
+    ssh_string_free_char(privateBase64);
+    storeKey(key, privateKey);
+}
+
+void KeyStore::addEncryptedKey(const QString &name, const QString &privateKey)
+{
+    QByteArray blob;
+    ssh_key publicKey = nullptr;
+    Key key;
+    const bool ok = openSshPublicKey(privateKey.toUtf8(), &blob, nullptr)
+            && ssh_pki_import_pubkey_base64(blob.toBase64().constData(), ssh_key_type_from_name(keyTypeName(blob).constData()),
+                                            &publicKey) == SSH_OK
+            && describeKey(name, publicKey, &key);
+    ssh_key_free(publicKey);
+    if (!ok) {
+        setError(tr("Could not read private key"));
+        return;
+    }
+    key.encrypted = true;
+    storeKey(key, privateKey.trimmed().toUtf8());
+}
+
+bool KeyStore::describeKey(const QString &name, ssh_key_struct *sshKey, Key *key) const
+{
     char *publicBase64 = nullptr;
     unsigned char *hash = nullptr;
     size_t hashLength = 0;
-    if (ssh_pki_export_privkey_base64(sshKey, nullptr, nullptr, nullptr, &privateBase64) != SSH_OK
-            || ssh_pki_export_pubkey_base64(sshKey, &publicBase64) != SSH_OK
+    if (ssh_pki_export_pubkey_base64(sshKey, &publicBase64) != SSH_OK
             || ssh_get_publickey_hash(sshKey, SSH_PUBLICKEY_HASH_SHA256, &hash, &hashLength) != SSH_OK) {
-        ssh_string_free_char(privateBase64);
         ssh_string_free_char(publicBase64);
-        setError(tr("Could not export key"));
-        return;
+        return false;
     }
     char *fingerprint = ssh_get_fingerprint_hash(SSH_PUBLICKEY_HASH_SHA256, hash, hashLength);
     ssh_clean_pubkey_hash(&hash);
 
-    Key key;
-    key.id = QUuid::createUuid().toString().remove(QRegExp(QStringLiteral("[{}-]")));
-    key.name = name.trimmed();
-    key.publicKey = QStringLiteral("%1 %2 %3").arg(QString::fromLatin1(ssh_key_type_to_char(ssh_key_type(sshKey))),
-                                                   QString::fromLatin1(publicBase64), key.name);
-    key.fingerprint = QString::fromLatin1(fingerprint);
-    QByteArray privateKey(privateBase64);
-
+    key->id = QUuid::createUuid().toString().remove(QRegExp(QStringLiteral("[{}-]")));
+    key->name = name.trimmed();
+    key->publicKey = QStringLiteral("%1 %2 %3").arg(QString::fromLatin1(ssh_key_type_to_char(ssh_key_type(sshKey))),
+                                                    QString::fromLatin1(publicBase64), key->name);
+    key->fingerprint = QString::fromLatin1(fingerprint);
     ssh_string_free_char(fingerprint);
     ssh_string_free_char(publicBase64);
-    std::fill(privateBase64, privateBase64 + qstrlen(privateBase64), '\0');
-    ssh_string_free_char(privateBase64);
+    return true;
+}
 
+void KeyStore::storeKey(const Key &key, QByteArray privateKey)
+{
     setError(QString());
     m_vault->store(key.id, privateKey, this, [this, key](const QString &error) {
         if (!error.isEmpty()) {
