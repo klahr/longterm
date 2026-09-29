@@ -14,7 +14,22 @@
          break;
        }
        if(c == ':') {
-@@ -263,8 +266,10 @@
+@@ -231,8 +234,12 @@
+         c = ';';
+       }
+       if(c == ';') {
+-        vt->parser.v.csi.argi++;
+-        vt->parser.v.csi.args[vt->parser.v.csi.argi] = CSI_ARG_MISSING;
++        /* Arguments past CSI_ARGS_MAX run into the next field of the parser,
++         * the last one keeps the rest instead */
++        if(vt->parser.v.csi.argi < CSI_ARGS_MAX-1) {
++          vt->parser.v.csi.argi++;
++          vt->parser.v.csi.args[vt->parser.v.csi.argi] = CSI_ARG_MISSING;
++        }
+         break;
+       }
+ 
+@@ -263,8 +270,10 @@
        if(c >= '0' && c <= '9') {
          if(vt->parser.v.osc.command == -1)
            vt->parser.v.osc.command = 0;
@@ -26,7 +41,7 @@
          vt->parser.v.osc.command += c - '0';
          break;
        }
-@@ -377,7 +382,9 @@
+@@ -377,7 +386,9 @@
  
    if(string_start) {
      size_t string_len = bytes + pos - string_start;

@@ -34,6 +34,7 @@ Terminal::Terminal(QObject *parent)
     , m_cursorVisible(true)
     , m_clipboardTooLarge(false)
     , m_scrolledLines(0)
+    , m_droppedLines(0)
 {
     m_cursor.row = 0;
     m_cursor.col = 0;
@@ -138,6 +139,8 @@ void Terminal::paste(const QString &text)
     QString normalized = text;
     normalized.replace(QStringLiteral("\r\n"), QStringLiteral("\r"));
     normalized.replace(QLatin1Char('\n'), QLatin1Char('\r'));
+    // Pasted text ending the bracket early would have the rest run as typed
+    normalized.remove(QStringLiteral("\x1b[201~"));
     vterm_keyboard_start_paste(m_vterm);
     emit outputReady(normalized.toUtf8());
     vterm_keyboard_end_paste(m_vterm);
@@ -227,8 +230,10 @@ int Terminal::onPushLine(int columns, const VTermScreenCell *cells, void *user)
     std::memcpy(line.data(), cells, columns * sizeof(VTermScreenCell));
     terminal->m_scrollback.append(line);
     ++terminal->m_scrolledLines;
-    if (terminal->m_scrollback.size() > MaxScrollbackLines)
+    if (terminal->m_scrollback.size() > MaxScrollbackLines) {
         terminal->m_scrollback.removeFirst();
+        ++terminal->m_droppedLines;
+    }
     return 1;
 }
 
@@ -248,7 +253,11 @@ int Terminal::onPopLine(int columns, VTermScreenCell *cells, void *user)
 
 int Terminal::onClearScrollback(void *user)
 {
-    static_cast<Terminal *>(user)->m_scrollback.clear();
+    Terminal *terminal = static_cast<Terminal *>(user);
+    terminal->m_droppedLines += terminal->m_scrollback.size();
+    terminal->m_scrollback.clear();
+    // Nothing on screen changes, but views scrolled back have less to show
+    emit terminal->contentChanged();
     return 1;
 }
 

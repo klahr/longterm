@@ -1,6 +1,7 @@
 #include "knownhosts.h"
 
 #include <QFile>
+#include <QSaveFile>
 
 #include <libssh/libssh.h>
 
@@ -26,6 +27,7 @@ QVariant KnownHosts::data(const QModelIndex &index, int role) const
     case HostsRole: return entry.hosts;
     case KeyTypeRole: return entry.keyType;
     case FingerprintRole: return entry.fingerprint;
+    case LineRole: return QString::fromLatin1(entry.line);
     default: return QVariant();
     }
 }
@@ -36,6 +38,7 @@ QHash<int, QByteArray> KnownHosts::roleNames() const
     roles[HostsRole] = "hosts";
     roles[KeyTypeRole] = "keyType";
     roles[FingerprintRole] = "fingerprint";
+    roles[LineRole] = "line";
     return roles;
 }
 
@@ -77,11 +80,11 @@ void KnownHosts::reload()
     emit countChanged();
 }
 
-void KnownHosts::remove(int row)
+void KnownHosts::remove(const QString &line)
 {
-    if (row < 0 || row >= m_entries.size())
+    const QByteArray removed = line.toLatin1();
+    if (removed.isEmpty())
         return;
-    const QByteArray removed = m_entries.at(row).line;
 
     QFile file(SshSession::knownHostsPath());
     if (!file.open(QIODevice::ReadOnly))
@@ -96,7 +99,11 @@ void KnownHosts::remove(int row)
             kept.append(line);
     }
     file.close();
-    if (found && file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        file.write(kept);
+    // Written aside and renamed, so an interrupted write cannot lose the other keys
+    QSaveFile saved(file.fileName());
+    if (found && saved.open(QIODevice::WriteOnly)) {
+        saved.write(kept);
+        saved.commit();
+    }
     reload();
 }

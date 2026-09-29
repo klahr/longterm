@@ -6,9 +6,19 @@
 
 #include "secretvault.h"
 
+// A damaged file can claim any number of entries
+static const int MaxHosts = 1000;
+
+// Pasted text can carry line breaks, which would end up as extra lines in exportConfig
+static QString singleLine(const QString &text)
+{
+    return QString(text).replace(QRegExp(QStringLiteral("[\\x0000-\\x001f\\x007f]")), QStringLiteral(" ")).trimmed();
+}
+
 HostStore::HostStore(SecretVault *vault, QObject *parent)
     : QAbstractListModel(parent)
     , m_vault(vault)
+    , m_batch(false)
     // Passwords are never written here, they go to Sailfish Secrets
     , m_settings(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation)
                  + QStringLiteral("/hosts.conf"), QSettings::IniFormat)
@@ -61,18 +71,23 @@ QString HostStore::saveHost(const QString &hostId, const QString &name,
     int row = indexOf(hostId);
     if (row >= 0) {
         host = m_hosts.at(row);
+    } else if (m_hosts.size() >= MaxHosts) {
+        setError(tr("Too many hosts, %1 can be saved").arg(MaxHosts));
+        return QString();
     } else {
         host.id = QUuid::createUuid().toString().remove(QRegExp(QStringLiteral("[{}-]")));
         host.hasPassword = false;
     }
-    host.name = name.trimmed();
-    host.address = address.trimmed();
-    host.port = port;
-    host.user = user.trimmed();
+    host.name = singleLine(name);
+    host.address = singleLine(address);
+    host.port = port >= 1 && port <= 65535 ? port : 22;
+    host.user = singleLine(user);
     host.keyId = keyId;
     host.jumpHostId = jumpHostId == host.id ? QString() : jumpHostId;
     host.forwardAgent = forwardAgent;
-    host.localForwards = localForwards;
+    host.localForwards.clear();
+    for (const QString &forward : localForwards)
+        host.localForwards.append(singleLine(forward));
 
     if (row >= 0) {
         m_hosts[row] = host;
@@ -84,16 +99,19 @@ QString HostStore::saveHost(const QString &hostId, const QString &name,
         endInsertRows();
         emit countChanged();
     }
-    save();
+    if (!m_batch)
+        save();
 
     const QString id = host.id;
     setError(QString());
     if (keyId.isEmpty() && rememberPassword && !password.isEmpty()) {
         m_vault->store(passwordSecretId(id), password.toUtf8(), this, [this, id](const QString &error) {
-            if (error.isEmpty())
-                setHasPassword(id, true);
-            else
+            if (!error.isEmpty())
                 setError(tr("Could not remember password: %1").arg(error));
+            else if (indexOf(id) < 0)
+                m_vault->remove(passwordSecretId(id), this, [](const QString &) {});
+            else
+                setHasPassword(id, true);
         });
     } else if ((!keyId.isEmpty() || !rememberPassword) && host.hasPassword) {
         setHasPassword(id, false);
@@ -109,10 +127,12 @@ void HostStore::rememberPassword(const QString &hostId, const QString &password)
         return;
     const QString id = host.id;
     m_vault->store(passwordSecretId(id), password.toUtf8(), this, [this, id](const QString &error) {
-        if (error.isEmpty())
-            setHasPassword(id, true);
-        else
+        if (!error.isEmpty())
             setError(tr("Could not remember password: %1").arg(error));
+        else if (indexOf(id) < 0)
+            m_vault->remove(passwordSecretId(id), this, [](const QString &) {});
+        else
+            setHasPassword(id, true);
     });
 }
 
@@ -176,6 +196,47 @@ QString HostStore::hostIdAt(int row) const
     return row >= 0 && row < m_hosts.size() ? m_hosts.at(row).id : QString();
 }
 
+// Splits a value the way OpenSSH does, with double quotes around arguments
+// that have spaces and a # starting an argument commenting out the rest
+static QStringList configArguments(const QString &text)
+{
+    QStringList arguments;
+    QString current;
+    bool inArgument = false;
+    bool quoted = false;
+    for (const QChar c : text) {
+        if (quoted) {
+            if (c == QLatin1Char('"'))
+                quoted = false;
+            else
+                current += c;
+        } else if (c == QLatin1Char('"')) {
+            quoted = true;
+            inArgument = true;
+        } else if (c.isSpace()) {
+            if (inArgument)
+                arguments.append(current);
+            current.clear();
+            inArgument = false;
+        } else if (c == QLatin1Char('#') && !inArgument) {
+            break;
+        } else {
+            current += c;
+            inArgument = true;
+        }
+    }
+    if (inArgument)
+        arguments.append(current);
+    return arguments;
+}
+
+static bool isPort(const QString &text)
+{
+    bool ok = false;
+    const int port = text.toInt(&ok);
+    return ok && port >= 1 && port <= 65535;
+}
+
 static QString configAlias(const QString &name)
 {
     return name.simplified().replace(QLatin1Char(' '), QLatin1Char('-'));
@@ -229,14 +290,14 @@ int HostStore::importConfig(const QString &config)
         if (split < 0)
             continue;
         const QString key = trimmed.left(split).toLower();
-        QString value = trimmed.mid(split).trimmed();
-        if (value.startsWith(QLatin1Char('=')))
-            value = value.mid(1).trimmed();
-        if (value.size() >= 2 && value.startsWith(QLatin1Char('"')) && value.endsWith(QLatin1Char('"')))
-            value = value.mid(1, value.size() - 2);
+        QString rest = trimmed.mid(split).trimmed();
+        if (rest.startsWith(QLatin1Char('=')))
+            rest = rest.mid(1).trimmed();
+        const QStringList arguments = configArguments(rest);
+        const QString value = arguments.value(0);
 
         if (key == QLatin1String("host")) {
-            const QString alias = value.split(QRegExp(QStringLiteral("\\s+"))).value(0);
+            const QString alias = value;
             // Patterns apply to many hosts, there is nothing to save for them
             if (alias.isEmpty() || alias.contains(QRegExp(QStringLiteral("[*?!]")))) {
                 entry = nullptr;
@@ -251,42 +312,56 @@ int HostStore::importConfig(const QString &config)
         } else if (key == QLatin1String("hostname")) {
             entry->address = value;
         } else if (key == QLatin1String("port")) {
-            entry->port = qBound(1, value.toInt(), 65535);
+            if (isPort(value))
+                entry->port = value.toInt();
         } else if (key == QLatin1String("user")) {
             entry->user = value;
         } else if (key == QLatin1String("proxyjump")) {
-            // Only the first hop, and only when it names a saved host
-            entry->jump = value.split(QLatin1Char(',')).value(0).trimmed();
+            // Only the first hop, and only when it names a saved host, as
+            // [user@]host[:port] where the user and port are the saved host's own
+            QString jump = value.split(QLatin1Char(',')).value(0).trimmed();
+            jump = jump.mid(jump.lastIndexOf(QLatin1Char('@')) + 1);
+            if (jump.startsWith(QLatin1Char('[')) && jump.contains(QLatin1Char(']')))
+                jump = jump.mid(1, jump.indexOf(QLatin1Char(']')) - 1);
+            else if (jump.count(QLatin1Char(':')) == 1)
+                jump = jump.section(QLatin1Char(':'), 0, 0);
+            entry->jump = jump;
         } else if (key == QLatin1String("forwardagent")) {
             entry->forwardAgent = value.toLower() == QLatin1String("yes");
         } else if (key == QLatin1String("localforward")) {
-            // "[bind:]port host:hostport"
-            const QStringList parts = value.split(QRegExp(QStringLiteral("\\s+")));
-            if (parts.size() == 2)
-                entry->localForwards.append(parts.at(0).section(QLatin1Char(':'), -1) + QLatin1Char(':') + parts.at(1));
+            // "[bind:]port host:hostport", sockets and dynamic forwards are left out
+            const QString target = arguments.value(1);
+            if (arguments.size() == 2 && isPort(value.section(QLatin1Char(':'), -1))
+                    && target.contains(QLatin1Char(':')) && isPort(target.section(QLatin1Char(':'), -1)))
+                entry->localForwards.append(value.section(QLatin1Char(':'), -1) + QLatin1Char(':') + target);
         }
     }
 
+    // Exported names have their spaces turned into dashes
+    const auto findName = [this](const QString &name) {
+        int row = indexOfName(name);
+        for (int other = 0; row < 0 && other < m_hosts.size(); ++other) {
+            if (configAlias(m_hosts.at(other).name) == name)
+                row = other;
+        }
+        return row;
+    };
     QStringList ids;
+    m_batch = true;
     for (const Entry &imported : entries) {
-        const int row = indexOfName(imported.name);
+        const int row = findName(imported.name);
         const Host existing = row >= 0 ? m_hosts.at(row) : Host();
         ids.append(saveHost(row >= 0 ? existing.id : QString(), imported.name, imported.address,
                             imported.port, imported.user, row >= 0 ? existing.keyId : QString(),
                             QString(), row >= 0 && existing.hasPassword, QString(),
                             imported.forwardAgent, imported.localForwards));
     }
+    m_batch = false;
     // Jumps can name hosts that come later in the file
     for (int i = 0; i < entries.size(); ++i) {
         if (entries.at(i).jump.isEmpty())
             continue;
-        int jumpRow = indexOfName(entries.at(i).jump);
-        if (jumpRow < 0) {
-            for (int row = 0; row < m_hosts.size(); ++row) {
-                if (configAlias(m_hosts.at(row).name) == entries.at(i).jump)
-                    jumpRow = row;
-            }
-        }
+        const int jumpRow = findName(entries.at(i).jump);
         const int row = indexOf(ids.at(i));
         if (jumpRow >= 0 && row >= 0 && jumpRow != row) {
             m_hosts[row].jumpHostId = m_hosts.at(jumpRow).id;
@@ -338,9 +413,6 @@ void HostStore::setHasPassword(const QString &hostId, bool hasPassword)
     save();
     emit dataChanged(index(row), index(row));
 }
-
-// A damaged file can claim any number of entries
-static const int MaxHosts = 1000;
 
 void HostStore::load()
 {

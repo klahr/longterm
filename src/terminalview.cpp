@@ -65,8 +65,18 @@ void appendCellText(QString &text, const VTermScreenCell &cell)
         text.append(QLatin1Char(' '));
         return;
     }
-    for (int i = 0; i < VTERM_MAX_CHARS_PER_CELL && cell.chars[i]; ++i)
-        text.append(QString::fromUcs4(&cell.chars[i], 1));
+    // Appended as they are, a QString for each made searching the scrollback slow
+    for (int i = 0; i < VTERM_MAX_CHARS_PER_CELL && cell.chars[i]; ++i) {
+        const uint32_t ucs4 = cell.chars[i];
+        if (ucs4 > 0x10ffff) {
+            text.append(QChar(QChar::ReplacementCharacter));
+        } else if (QChar::requiresSurrogates(ucs4)) {
+            text.append(QChar(QChar::highSurrogate(ucs4)));
+            text.append(QChar(QChar::lowSurrogate(ucs4)));
+        } else {
+            text.append(QChar(ushort(ucs4)));
+        }
+    }
 }
 
 // Paths, URLs and options should select as one word
@@ -102,6 +112,7 @@ TerminalView::TerminalView(QQuickItem *parent)
     , m_preview(false)
     , m_radius(0)
     , m_scrolledLines(0)
+    , m_droppedLines(0)
 {
     setFlag(ItemAcceptsInputMethod, true);
     setFlag(ItemIsFocusScope, false);
@@ -124,6 +135,7 @@ void TerminalView::setTerminal(Terminal *terminal)
     }
     clearSelection();
     m_scrolledLines = m_terminal ? m_terminal->scrolledLines() : 0;
+    m_droppedLines = m_terminal ? m_terminal->droppedLines() : 0;
     setScrollOffset(0);
     applyColorScheme();
     updateTerminalSize();
@@ -584,7 +596,8 @@ void TerminalView::updateTerminalSize()
     // The session's own view decides the size
     if (!m_terminal || m_preview || width() <= 0 || height() <= 0)
         return;
-    m_terminal->resize(qMax(1, int(height() / m_cellHeight)), qMax(1, int(width() / m_cellWidth)));
+    // Bounded as doubles first, an infinite size does not fit an int
+    m_terminal->resize(int(qBound(1.0, height() / m_cellHeight, 10000.0)), int(qBound(1.0, width() / m_cellWidth, 10000.0)));
 }
 
 void TerminalView::updateCellSize()
@@ -631,8 +644,8 @@ void TerminalView::onSizeChanged()
 
 void TerminalView::cellAt(qreal x, qreal y, int *line, int *column) const
 {
-    const int row = qBound(0, int(y / m_cellHeight), m_terminal->rows() - 1);
-    *column = qBound(0, int(x / m_cellWidth), m_terminal->columns() - 1);
+    const int row = int(qBound(0.0, y / m_cellHeight, qreal(m_terminal->rows() - 1)));
+    *column = int(qBound(0.0, x / m_cellWidth, qreal(m_terminal->columns() - 1)));
     *line = m_terminal->scrollbackLines() - m_scrollOffset + row;
 }
 
@@ -640,6 +653,8 @@ QString TerminalView::lineText(int line, QVector<int> *columns) const
 {
     const int row = line - m_terminal->scrollbackLines();
     QString text;
+    text.reserve(m_terminal->columns());
+    columns->reserve(m_terminal->columns());
     for (int column = 0; column < m_terminal->columns();) {
         const VTermScreenCell cell = m_terminal->cell(row, column);
         const int before = text.size();
@@ -682,6 +697,21 @@ void TerminalView::onContentChanged()
     const qint64 scrolled = m_terminal ? m_terminal->scrolledLines() : 0;
     const qint64 added = scrolled - m_scrolledLines;
     m_scrolledLines = scrolled;
+    const qint64 dropped = (m_terminal ? m_terminal->droppedLines() : 0) - m_droppedLines;
+    m_droppedLines += dropped;
+    if (dropped > 0 && m_hasSelection) {
+        if (qMax(m_anchorLine, m_endLine) < dropped) {
+            clearSelection();
+        } else {
+            // A start that was dropped moves to the oldest line left
+            if (m_anchorLine < dropped)
+                m_anchorColumn = 0;
+            if (m_endLine < dropped)
+                m_endColumn = 0;
+            m_anchorLine = int(qMax<qint64>(0, m_anchorLine - dropped));
+            m_endLine = int(qMax<qint64>(0, m_endLine - dropped));
+        }
+    }
     setScrollOffset(m_scrollOffset > 0 ? int(m_scrollOffset + added) : 0);
     update();
 }

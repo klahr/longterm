@@ -26,7 +26,18 @@
    unsigned char mask = 1 << (col & 7);
    return state->tabstops[col >> 3] & mask;
  }
-@@ -1234,7 +1241,8 @@
+@@ -367,6 +374,10 @@
+         abort();
+       }
+ #endif
++      /* C1 controls arriving as UTF-8 have no width, taking them off moved the
++       * cursor left of the screen */
++      if(this_width < 0)
++        this_width = 1;
+       width += this_width;
+     }
+ 
+@@ -1234,7 +1245,8 @@
      count = CSI_ARG_COUNT(args[0]);
      col = state->pos.col + count;
      UBOUND(col, row_width);
@@ -36,7 +47,7 @@
        putglyph(state, state->combine_chars, state->combine_width, state->pos);
        state->pos.col += state->combine_width;
      }
-@@ -1979,10 +1987,17 @@
+@@ -1979,10 +1991,17 @@
    state->rows = rows;
    state->cols = cols;
  

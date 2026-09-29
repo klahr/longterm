@@ -15,7 +15,9 @@ public:
     enum Roles {
         HostsRole = Qt::UserRole + 1,
         KeyTypeRole,
-        FingerprintRole
+        FingerprintRole,
+        // The entry's line of the file, bytes as Latin-1 characters
+        LineRole
     };
 
     explicit KnownHosts(QObject *parent = nullptr);
@@ -28,8 +30,9 @@ public:
 
     // Connections add entries, so this is called when the list is shown
     Q_INVOKABLE void reload();
-    // The next connection to the host asks to trust its key again
-    Q_INVOKABLE void remove(int row);
+    // The next connection to the host asks to trust its key again. Takes the
+    // line, a row can point at another entry by the time a remorse timer fires.
+    Q_INVOKABLE void remove(const QString &line);
 
 signals:
     void countChanged();

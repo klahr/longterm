@@ -31,7 +31,8 @@ Page {
     }
     readonly property bool forwardsValid: {
         for (var i = 0; i < localForwards.length; ++i) {
-            if (!/^\d{1,5}:(\[[^\]]+\]|[^:\[\]]+):\d{1,5}$/.test(localForwards[i]))
+            var match = /^(\d{1,5}):(\[[^\]]+\]|[^:\[\]]+):(\d{1,5})$/.exec(localForwards[i])
+            if (!match || match[1] < 1 || match[1] > 65535 || match[3] < 1 || match[3] > 65535)
                 return false
         }
         return true

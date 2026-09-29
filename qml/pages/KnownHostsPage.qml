@@ -35,8 +35,8 @@ Page {
                         onClicked: {
                             // The delegate's context is gone when the remorse timer fires
                             var hosts = knownHosts
-                            var row = model.index
-                            delegate.remorseDelete(function() { hosts.remove(row) })
+                            var line = model.line
+                            delegate.remorseDelete(function() { hosts.remove(line) })
                         }
                     }
                 }

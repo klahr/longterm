@@ -86,6 +86,8 @@ private:
     void setError(const QString &message);
 
     SecretVault *m_vault;
+    // Set while importConfig saves many hosts, which writes the file once at the end
+    bool m_batch;
     QSettings m_settings;
     QList<Host> m_hosts;
     QString m_errorString;

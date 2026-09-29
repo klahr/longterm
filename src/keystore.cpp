@@ -31,9 +31,12 @@ bool readString(const QByteArray &data, int *pos, QByteArray *value)
 // every connect. OpenSSH uses 16 by default, ssh-keygen -a raises it.
 const quint32 MaxKdfRounds = 1000;
 
+// A damaged index can claim any number of entries
+const int MaxKeys = 1000;
+
 // The OpenSSH format keeps the public key readable in front of the encrypted part
 bool openSshPublicKey(const QByteArray &privateKey, QByteArray *publicKeyBlob, bool *encrypted,
-                      quint32 *kdfRounds = nullptr)
+                      quint32 *kdfRounds = nullptr, QByteArray *cipherName = nullptr, QByteArray *kdfName = nullptr)
 {
     static const QByteArray begin("-----BEGIN OPENSSH PRIVATE KEY-----");
     static const QByteArray end("-----END OPENSSH PRIVATE KEY-----");
@@ -58,6 +61,10 @@ bool openSshPublicKey(const QByteArray &privateKey, QByteArray *publicKeyBlob, b
         return false;
     if (encrypted)
         *encrypted = cipher != "none";
+    if (cipherName)
+        *cipherName = cipher;
+    if (kdfName)
+        *kdfName = kdf;
     if (kdfRounds) {
         // kdfoptions for bcrypt are the salt followed by the rounds
         int optionsPos = 0;
@@ -80,6 +87,12 @@ QByteArray keyTypeName(const QByteArray &publicKeyBlob)
     return name;
 }
 
+// FIDO keys need the authenticator they were made on, which the phone does not have
+bool isSecurityKey(const char *typeName)
+{
+    return typeName && qstrncmp(typeName, "sk-", 3) == 0;
+}
+
 }
 
 KeyStore::KeyStore(SecretVault *vault, QObject *parent)
@@ -92,6 +105,16 @@ KeyStore::KeyStore(SecretVault *vault, QObject *parent)
 {
     loadIndex();
     connect(m_vault, &SecretVault::busyChanged, this, &KeyStore::busyChanged);
+}
+
+KeyStore::~KeyStore()
+{
+    // Keys still being made or decrypted, their results never arrive now
+    for (QFutureWatcher<ssh_key> *watcher : findChildren<QFutureWatcher<ssh_key> *>(QString(), Qt::FindDirectChildrenOnly)) {
+        watcher->disconnect(this);
+        watcher->waitForFinished();
+        ssh_key_free(watcher->result());
+    }
 }
 
 bool KeyStore::busy() const
@@ -151,10 +174,12 @@ QString KeyStore::validatePrivateKey(const QString &privateKey, const QString &p
     const QByteArray data = privateKey.toUtf8();
     QByteArray blob;
     bool encrypted = false;
-    quint32 rounds = 0;
-    if (openSshPublicKey(data, &blob, &encrypted, &rounds) && encrypted) {
-        if (rounds > MaxKdfRounds)
-            return tr("The key's passphrase takes %1 rounds to check, too slow to use on every connect").arg(rounds);
+    const QString problem = encryptionProblem(data);
+    if (!problem.isEmpty())
+        return problem;
+    if (openSshPublicKey(data, &blob, &encrypted) && isSecurityKey(keyTypeName(blob).constData()))
+        return tr("Security keys (FIDO) are not supported");
+    if (encrypted) {
         // Checking the passphrase takes a noticeable moment, so it is left to
         // importKey instead of being done for every character typed
         return QString();
@@ -169,17 +194,26 @@ QString KeyStore::validatePrivateKey(const QString &privateKey, const QString &p
         return passphrase.isEmpty() ? tr("Not a valid private key, or it needs a passphrase")
                                     : tr("Not a valid private key, or wrong passphrase");
     }
+    const bool securityKey = isSecurityKey(ssh_key_type_to_char(ssh_key_type(key)));
     ssh_key_free(key);
-    return QString();
+    return securityKey ? tr("Security keys (FIDO) are not supported") : QString();
 }
 
 void KeyStore::generateKey(const QString &name, const QString &type)
 {
     enum ssh_keytypes_e keyType = SSH_KEYTYPE_ED25519;
-    if (type == QLatin1String("ecdsa"))
+    if (type == QLatin1String("ecdsa")) {
         keyType = SSH_KEYTYPE_ECDSA_P256;
-    else if (type == QLatin1String("rsa"))
+    } else if (type == QLatin1String("rsa")) {
         keyType = SSH_KEYTYPE_RSA;
+    } else if (type != QLatin1String("ed25519")) {
+        setError(tr("Unknown key type %1").arg(type));
+        return;
+    }
+    if (m_keys.size() >= MaxKeys) {
+        setError(tr("Too many keys, %1 can be kept").arg(MaxKeys));
+        return;
+    }
 
     ++m_generating;
     emit busyChanged();
@@ -187,6 +221,8 @@ void KeyStore::generateKey(const QString &name, const QString &type)
     QFutureWatcher<ssh_key> *watcher = new QFutureWatcher<ssh_key>(this);
     connect(watcher, &QFutureWatcher<ssh_key>::finished, this, [this, watcher, name]() {
         ssh_key key = watcher->result();
+        // Off the list the destructor frees pending keys from
+        watcher->setParent(nullptr);
         watcher->deleteLater();
         --m_generating;
         emit busyChanged();
@@ -213,6 +249,31 @@ void KeyStore::generateKey(const QString &name, const QString &type)
     }));
 }
 
+QString KeyStore::encryptionProblem(const QByteArray &privateKey)
+{
+    QByteArray blob;
+    bool encrypted = false;
+    quint32 rounds = 0;
+    QByteArray cipher;
+    QByteArray kdf;
+    if (!openSshPublicKey(privateKey, &blob, &encrypted, &rounds, &cipher, &kdf) || !encrypted)
+        return QString();
+    // libssh has no decryption for the AEAD ciphers and crashes on them
+    static const QList<QByteArray> ciphers = {
+        "aes128-ctr", "aes192-ctr", "aes256-ctr", "aes128-cbc", "aes192-cbc", "aes256-cbc", "3des-cbc"
+    };
+    if (kdf != "bcrypt")
+        return tr("The key's encryption settings cannot be read");
+    if (!ciphers.contains(cipher))
+        return tr("Keys encrypted with %1 are not supported, re-encrypt it with ssh-keygen -p -Z aes256-ctr")
+                .arg(QString::fromLatin1(cipher));
+    if (rounds == 0)
+        return tr("The key's encryption settings cannot be read");
+    if (rounds > MaxKdfRounds)
+        return tr("The key's passphrase takes %1 rounds to check, too slow to use on every connect").arg(rounds);
+    return QString();
+}
+
 bool KeyStore::isEncrypted(const QByteArray &privateKey)
 {
     QByteArray blob;
@@ -225,22 +286,48 @@ bool KeyStore::isEncrypted(const QByteArray &privateKey)
 
 void KeyStore::importKey(const QString &name, const QString &privateKey, const QString &passphrase)
 {
+    const QString problem = encryptionProblem(privateKey.toUtf8());
+    if (!problem.isEmpty()) {
+        setError(problem);
+        return;
+    }
+    if (m_keys.size() >= MaxKeys) {
+        setError(tr("Too many keys, %1 can be kept").arg(MaxKeys));
+        return;
+    }
     if (passphrase.isEmpty() && isEncrypted(privateKey.toUtf8())) {
         addEncryptedKey(name, privateKey);
         return;
     }
-    ssh_key key = nullptr;
+    ++m_generating;
+    emit busyChanged();
+    // bcrypt rounds can take seconds, so the key is decrypted off the UI thread
+    QFutureWatcher<ssh_key> *watcher = new QFutureWatcher<ssh_key>(this);
+    connect(watcher, &QFutureWatcher<ssh_key>::finished, this, [this, watcher, name, passphrase]() {
+        ssh_key key = watcher->result();
+        // Off the list the destructor frees pending keys from
+        watcher->setParent(nullptr);
+        watcher->deleteLater();
+        --m_generating;
+        emit busyChanged();
+        if (!key) {
+            setError(passphrase.isEmpty() ? tr("Could not read private key")
+                                          : tr("Wrong passphrase, the key was not imported"));
+            return;
+        }
+        // Stored without the passphrase, Sailfish Secrets encrypts it instead
+        addKey(name, key);
+        ssh_key_free(key);
+    });
+    const QByteArray keyData = privateKey.trimmed().toUtf8();
     const QByteArray passphraseData = passphrase.toUtf8();
-    if (ssh_pki_import_privkey_base64(privateKey.trimmed().toUtf8().constData(),
-                                      passphrase.isEmpty() ? nullptr : passphraseData.constData(),
-                                      nullptr, nullptr, &key) != SSH_OK) {
-        setError(passphrase.isEmpty() ? tr("Could not read private key")
-                                      : tr("Wrong passphrase, the key was not imported"));
-        return;
-    }
-    // Stored without the passphrase, Sailfish Secrets encrypts it instead
-    addKey(name, key);
-    ssh_key_free(key);
+    watcher->setFuture(QtConcurrent::run([keyData, passphraseData]() -> ssh_key {
+        ssh_key key = nullptr;
+        if (ssh_pki_import_privkey_base64(keyData.constData(), passphraseData.isEmpty() ? nullptr : passphraseData.constData(),
+                                          nullptr, nullptr, &key) != SSH_OK)
+            key = nullptr;
+        return key;
+    }));
 }
 
 void KeyStore::removeKey(const QString &keyId)
@@ -295,9 +382,6 @@ void KeyStore::exportPrivateKey(const QString &keyId, const QString &passphrase)
     });
 }
 
-// A damaged index can claim any number of entries
-static const int MaxKeys = 1000;
-
 void KeyStore::loadIndex()
 {
     const int size = qMin(m_index.beginReadArray(QStringLiteral("keys")), MaxKeys);
@@ -309,7 +393,8 @@ void KeyStore::loadIndex()
         key.publicKey = m_index.value(QStringLiteral("publicKey")).toString();
         key.fingerprint = m_index.value(QStringLiteral("fingerprint")).toString();
         key.encrypted = m_index.value(QStringLiteral("encrypted"), false).toBool();
-        if (key.id.isEmpty())
+        // Keys sharing an id would share a secret, removing one would lose both
+        if (key.id.isEmpty() || indexOf(key.id) >= 0)
             continue;
         m_keys.append(key);
     }
@@ -334,6 +419,10 @@ void KeyStore::saveIndex()
 
 void KeyStore::addKey(const QString &name, ssh_key_struct *sshKey)
 {
+    if (isSecurityKey(ssh_key_type_to_char(ssh_key_type(sshKey)))) {
+        setError(tr("Security keys (FIDO) are not supported"));
+        return;
+    }
     Key key;
     char *privateBase64 = nullptr;
     if (!describeKey(name, sshKey, &key)
@@ -354,6 +443,10 @@ void KeyStore::addEncryptedKey(const QString &name, const QString &privateKey)
     QByteArray blob;
     ssh_key publicKey = nullptr;
     Key key;
+    if (openSshPublicKey(privateKey.toUtf8(), &blob, nullptr) && isSecurityKey(keyTypeName(blob).constData())) {
+        setError(tr("Security keys (FIDO) are not supported"));
+        return;
+    }
     const bool ok = openSshPublicKey(privateKey.toUtf8(), &blob, nullptr)
             && ssh_pki_import_pubkey_base64(blob.toBase64().constData(), ssh_key_type_from_name(keyTypeName(blob).constData()),
                                             &publicKey) == SSH_OK
@@ -381,7 +474,7 @@ bool KeyStore::describeKey(const QString &name, ssh_key_struct *sshKey, Key *key
     ssh_clean_pubkey_hash(&hash);
 
     key->id = QUuid::createUuid().toString().remove(QRegExp(QStringLiteral("[{}-]")));
-    key->name = name.trimmed();
+    key->name = name.simplified();
     key->publicKey = QStringLiteral("%1 %2 %3").arg(QString::fromLatin1(ssh_key_type_to_char(ssh_key_type(sshKey))),
                                                     QString::fromLatin1(publicBase64), key->name);
     key->fingerprint = QString::fromLatin1(fingerprint);

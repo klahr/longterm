@@ -26,6 +26,7 @@ public:
     };
 
     explicit KeyStore(SecretVault *vault, QObject *parent = nullptr);
+    ~KeyStore();
 
     int count() const { return m_keys.size(); }
     bool busy() const;
@@ -40,6 +41,8 @@ public:
     // Returns an empty string for a usable key, otherwise why it is not. An
     // encrypted key without its passphrase is usable, it is asked for on connect.
     Q_INVOKABLE QString validatePrivateKey(const QString &privateKey, const QString &passphrase) const;
+    // Why an encrypted key cannot be decrypted here, or empty
+    static QString encryptionProblem(const QByteArray &privateKey);
     // Whether the key only loads with a passphrase
     static bool isEncrypted(const QByteArray &privateKey);
     // type is "ed25519", "ecdsa" or "rsa". RSA takes a while, so keys are made off the UI thread.

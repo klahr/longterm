@@ -4,6 +4,8 @@
 #include <QStandardPaths>
 #include <QTimer>
 
+#include <algorithm>
+
 #include "appsettings.h"
 #include "sshsession.h"
 
@@ -115,13 +117,20 @@ void SessionManager::configure(SshSession *session, const HostStore::Host &host)
 
 void SessionManager::onHostsChanged()
 {
+    QList<SshSession *> deleted;
     for (SshSession *session : m_sessions) {
         HostStore::Host host;
         const QString hostId = m_origins.value(session).hostId;
-        // A deleted host leaves its sessions as they were
-        if (!hostId.isEmpty() && m_hosts->find(hostId, &host))
+        if (hostId.isEmpty())
+            continue;
+        if (m_hosts->find(hostId, &host))
             configure(session, host);
+        else
+            deleted.append(session);
     }
+    // They could not come back after a restart without the host
+    for (SshSession *session : deleted)
+        closeSession(session);
 }
 
 void SessionManager::rememberPassword(SshSession *session, const QString &password)
@@ -163,10 +172,12 @@ SshSession *SessionManager::addSession(const QString &name, const QString &host,
     QString uniqueName = name;
     if (!name.isEmpty()) {
         int instance = 1;
-        for (const SshSession *existing : m_sessions) {
-            if (existing->name() == uniqueName)
-                uniqueName = QStringLiteral("%1 #%2").arg(name).arg(++instance);
-        }
+        const auto taken = [this](const QString &candidate) {
+            return std::any_of(m_sessions.cbegin(), m_sessions.cend(),
+                               [&candidate](const SshSession *existing) { return existing->name() == candidate; });
+        };
+        while (taken(uniqueName))
+            uniqueName = QStringLiteral("%1 #%2").arg(name).arg(++instance);
     }
 
     SshSession *session = new SshSession(uniqueName, host, port, user, this);
@@ -242,8 +253,10 @@ void SessionManager::load()
             configure(session, host);
             m_origins.insert(session, Origin { hostId, QString() });
         } else if (!keyId.isEmpty()) {
-            SshSession *session = addSession(name, m_settings.value(QStringLiteral("host")).toString(),
-                                             m_settings.value(QStringLiteral("port"), 22).toInt(),
+            int port = m_settings.value(QStringLiteral("port"), 22).toInt();
+            if (port < 1 || port > 65535)
+                port = 22;
+            SshSession *session = addSession(name, m_settings.value(QStringLiteral("host")).toString(), port,
                                              m_settings.value(QStringLiteral("user")).toString());
             session->setSecret(m_vault, keyId, SshSession::PrivateKey);
             m_origins.insert(session, Origin { QString(), keyId });
