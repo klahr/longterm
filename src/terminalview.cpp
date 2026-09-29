@@ -144,7 +144,9 @@ void TerminalView::setFontFamily(const QString &family)
 
 void TerminalView::setFontPixelSize(int size)
 {
-    if (size <= 0 || size == m_font.pixelSize())
+    // Qt's glyph cache fails on tiny fonts drawn scaled up
+    size = qBound(4, size, 256);
+    if (size == m_font.pixelSize())
         return;
     m_font.setPixelSize(size);
     updateCellSize();
@@ -436,7 +438,8 @@ void TerminalView::paint(QPainter *painter)
     const int columns = m_terminal->columns();
     if (m_preview) {
         // Centered, keeping the terminal's own proportions
-        const qreal scale = qMin(width() / (columns * m_cellWidth), height() / (rows * m_cellHeight));
+        // Only ever shrunk, a tiny terminal is not blown up into the thumbnail
+        const qreal scale = qMin(qreal(1), qMin(width() / (columns * m_cellWidth), height() / (rows * m_cellHeight)));
         painter->translate((width() - columns * m_cellWidth * scale) / 2, (height() - rows * m_cellHeight * scale) / 2);
         painter->scale(scale, scale);
     }

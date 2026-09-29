@@ -221,10 +221,13 @@ void SessionManager::closeSession(SshSession *session)
     session->disconnectFromHost();
 }
 
+// A damaged file can claim any number of entries
+static const int MaxSessions = 1000;
+
 // Sessions come back disconnected, connecting only when the user asks
 void SessionManager::load()
 {
-    const int size = m_settings.beginReadArray(QStringLiteral("sessions"));
+    const int size = qMin(m_settings.beginReadArray(QStringLiteral("sessions")), MaxSessions);
     for (int i = 0; i < size; ++i) {
         m_settings.setArrayIndex(i);
         const QString name = m_settings.value(QStringLiteral("name")).toString();

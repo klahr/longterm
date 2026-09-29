@@ -339,9 +339,12 @@ void HostStore::setHasPassword(const QString &hostId, bool hasPassword)
     emit dataChanged(index(row), index(row));
 }
 
+// A damaged file can claim any number of entries
+static const int MaxHosts = 1000;
+
 void HostStore::load()
 {
-    const int size = m_settings.beginReadArray(QStringLiteral("hosts"));
+    const int size = qMin(m_settings.beginReadArray(QStringLiteral("hosts")), MaxHosts);
     for (int i = 0; i < size; ++i) {
         m_settings.setArrayIndex(i);
         Host host;
@@ -349,12 +352,16 @@ void HostStore::load()
         host.name = m_settings.value(QStringLiteral("name")).toString();
         host.address = m_settings.value(QStringLiteral("address")).toString();
         host.port = m_settings.value(QStringLiteral("port"), 22).toInt();
+        if (host.port < 1 || host.port > 65535)
+            host.port = 22;
         host.user = m_settings.value(QStringLiteral("user")).toString();
         host.keyId = m_settings.value(QStringLiteral("keyId")).toString();
         host.hasPassword = m_settings.value(QStringLiteral("hasPassword"), false).toBool();
         host.jumpHostId = m_settings.value(QStringLiteral("jumpHostId")).toString();
         host.forwardAgent = m_settings.value(QStringLiteral("forwardAgent"), false).toBool();
         host.localForwards = m_settings.value(QStringLiteral("localForwards")).toStringList();
+        if (host.id.isEmpty())
+            continue;
         m_hosts.append(host);
     }
     m_settings.endArray();

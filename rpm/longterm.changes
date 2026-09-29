@@ -1,3 +1,19 @@
+* Tue Sep 29 2026 Joachim Klahr <klahr@r8.rs> 0.2.1-1
+- Fix crashes and hangs on some output from the server and on resizes,
+  found by fuzzing the terminal emulator
+- Keep the app responsive and its memory use low when a server floods output
+- Disconnect right away from servers that stop answering
+- Encrypted keys can be imported without their passphrase, it is then asked
+  for on every connect
+- Connections follow changes to their saved host, deleted keys are removed
+  from the hosts using them
+- Ask for missing or wrong passwords in the session, optionally remembering
+  them
+- Scrolled-back terminals stay put while output arrives, with a button back
+  to the latest output
+- Title bar and thumbnails in the session's color scheme, faster session
+  switching
+
 * Mon Sep 28 2026 Joachim Klahr <klahr@r8.rs> 0.2.0-1
 - Keyboard-interactive login, and password prompts in the session with
   an option to remember the password

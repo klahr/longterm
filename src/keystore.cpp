@@ -295,9 +295,12 @@ void KeyStore::exportPrivateKey(const QString &keyId, const QString &passphrase)
     });
 }
 
+// A damaged index can claim any number of entries
+static const int MaxKeys = 1000;
+
 void KeyStore::loadIndex()
 {
-    const int size = m_index.beginReadArray(QStringLiteral("keys"));
+    const int size = qMin(m_index.beginReadArray(QStringLiteral("keys")), MaxKeys);
     for (int i = 0; i < size; ++i) {
         m_index.setArrayIndex(i);
         Key key;
@@ -306,6 +309,8 @@ void KeyStore::loadIndex()
         key.publicKey = m_index.value(QStringLiteral("publicKey")).toString();
         key.fingerprint = m_index.value(QStringLiteral("fingerprint")).toString();
         key.encrypted = m_index.value(QStringLiteral("encrypted"), false).toBool();
+        if (key.id.isEmpty())
+            continue;
         m_keys.append(key);
     }
     m_index.endArray();
