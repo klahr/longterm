@@ -2,9 +2,60 @@
 <!DOCTYPE TS>
 <TS version="2.1">
 <context>
+    <name>AboutPage</name>
+    <message>
+        <source>SSH protocol, version %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Terminal emulation, version %1, with memory safety fixes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Terminal font</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Operating system logos, which are trademarks of their owners</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>About</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Version %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>An SSH terminal for Sailfish OS</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>License</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Source code</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Third-party components</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open website</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>ColorSchemesPage</name>
     <message>
         <source>Color scheme</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>App default (%1)</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -49,6 +100,14 @@
         <source>Typed into the shell on every connect. Saved unencrypted, so keep passwords out of it.</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Color scheme</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>App default (%1)</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>ExportKeyDialog</name>
@@ -74,6 +133,10 @@
     </message>
     <message>
         <source>The passphrases differ</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copies the private key to the clipboard in OpenSSH format, still protected by its passphrase.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -217,6 +280,10 @@
         <source>Could not remember password: %1</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Too many hosts, %1 can be saved</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>ImportHostsDialog</name>
@@ -257,6 +324,14 @@
     </message>
     <message>
         <source>The key is stored in the device keychain without its passphrase.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Leave it empty to be asked for it on every connect instead</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The key is stored in the device keychain as it is. If it has a passphrase, you type it each time you connect with the key.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -317,6 +392,38 @@
         <source>Could not read private key: %1</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>This older key format needs its passphrase to be imported</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Keys encrypted with %1 are not supported, re-encrypt it with ssh-keygen -p -Z aes256-ctr</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The key&apos;s passphrase takes %1 rounds to check, too slow to use on every connect</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Wrong passphrase, the key was not imported</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Security keys (FIDO) are not supported</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Unknown key type %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Too many keys, %1 can be kept</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The key&apos;s encryption settings cannot be read</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>KeysPage</name>
@@ -348,6 +455,10 @@
         <source>Delete</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Asks for passphrase · %1</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>KnownHostsPage</name>
@@ -365,6 +476,13 @@
     </message>
     <message>
         <source>Delete</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>LicensePage</name>
+    <message>
+        <source>The license text is not installed</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -461,6 +579,22 @@
         <source>Find in scrollback</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Remember password</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Kept in the device keychain</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>1 line below</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 lines below</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>SessionsPage</name>
@@ -526,6 +660,10 @@
     </message>
     <message>
         <source>Remove</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>About</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -607,21 +745,25 @@
         <source>Copy hosts as ssh_config</source>
         <translation type="unfinished"></translation>
     </message>
-    <message numerus="yes">
-        <source>Copied %n host(s) to the clipboard</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-        </translation>
-    </message>
     <message>
         <source>Import from ssh_config</source>
         <translation type="unfinished"></translation>
     </message>
-    <message numerus="yes">
-        <source>Read %n host(s)</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-        </translation>
+    <message>
+        <source>Copied 1 host to the clipboard</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copied %1 hosts to the clipboard</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Read 1 host</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Read %1 hosts</source>
+        <translation type="unfinished"></translation>
     </message>
 </context>
 <context>
@@ -755,6 +897,46 @@
     </message>
     <message>
         <source>Jump host: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Invalid port %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Connection failed: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Key passphrase for the jump host %1@%2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Key passphrase for %1@%2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Wrong passphrase, try again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Wrong key passphrase</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Jump host password for %1@%2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Password for %1@%2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Wrong password, try again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The server kept asking questions</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

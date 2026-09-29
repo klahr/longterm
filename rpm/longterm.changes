@@ -1,3 +1,23 @@
+* Tue Sep 29 2026 Joachim Klahr <klahr@r8.rs> 0.3.0-1
+- Show the operating system of hosts and connections as an icon
+- About page with the licenses of the app and the components it uses
+- Fix memory corruption on some escape sequences from the server
+- Fix a crash on keys encrypted with AES-GCM or ChaCha20-Poly1305, which
+  are now refused with a hint to re-encrypt them; security keys (FIDO)
+  are refused as well
+- Show server prompts and messages, host and key names as plain text
+- Pasted text can no longer end bracketed paste early
+- Fix connections leaking on disconnect, stalls from port forwards and
+  agent forwarding, and reconnects after disconnecting on purpose
+- Notice frozen connections within a minute and a half, and try the next
+  address sooner when one does not answer
+- Faster ssh_config import that reads quotes and comments like OpenSSH,
+  exported configs can no longer carry extra lines from pasted values
+- Deleting a host closes its connections
+- Fix trusting changed host keys, removing known hosts, ports outside
+  1-65535 and duplicate connection names
+- Import keys with a passphrase without freezing the app
+
 * Tue Sep 29 2026 Joachim Klahr <klahr@r8.rs> 0.2.1-1
 - Fix crashes and hangs on some output from the server and on resizes,
   found by fuzzing the terminal emulator
