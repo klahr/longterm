@@ -24,6 +24,7 @@ SOURCES += src/longterm.cpp \
     src/keystore.cpp \
     src/knownhosts.cpp \
     src/secretvault.cpp \
+    src/sessionfilter.cpp \
     src/sessionmanager.cpp \
     src/sshagent.cpp \
     src/sshsession.cpp \
@@ -36,6 +37,7 @@ HEADERS += src/appsettings.h \
     src/keystore.h \
     src/knownhosts.h \
     src/secretvault.h \
+    src/sessionfilter.h \
     src/sessionmanager.h \
     src/sshagent.h \
     src/sshsession.h \

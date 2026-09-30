@@ -37,10 +37,13 @@ Page {
     }
 
     function showSession(otherSession) {
-        showIndex(sessionManager.indexOf(otherSession))
+        visibleSessions.keep = otherSession
+        showIndex(visibleSessions.indexOf(otherSession))
     }
 
     function showFirstSession() {
+        if (visibleSessions.count === 0 && sessionManager.count > 0)
+            visibleSessions.keep = sessionManager.sessionAt(0)
         showIndex(0)
     }
 
@@ -64,11 +67,17 @@ Page {
             showKeyboard()
     }
 
+    // Disconnected sessions are left out of the swipe, except the one on screen
+    SessionFilter {
+        id: visibleSessions
+        source: sessionManager
+    }
+
     // The session is removed when its shell exits, so leave once none are left to show
     Connections {
-        target: sessionManager
+        target: visibleSessions
         onCountChanged: {
-            if (sessionManager.count === 0 && page.status === PageStatus.Active)
+            if (visibleSessions.count === 0 && page.status === PageStatus.Active)
                 pageStack.navigateBack()
         }
     }
@@ -126,9 +135,13 @@ Page {
         interactive: count > 1
         // Not pulling past the first session leaves that swipe to the page stack for going back
         boundsBehavior: currentIndex === 0 ? Flickable.StopAtBounds : Flickable.DragAndOvershootBounds
-        model: sessionManager
+        model: visibleSessions
 
+        // Only once the swipe settles, as dropping the session left behind mid-swipe would shift the view
+        onMovementEnded: visibleSessions.keep = page.session
         onCurrentItemChanged: {
+            if (!moving)
+                visibleSessions.keep = page.session
             if (currentItem && page.status === PageStatus.Active)
                 page.showKeyboard()
         }

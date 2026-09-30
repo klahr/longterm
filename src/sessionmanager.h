@@ -41,6 +41,7 @@ public:
     Q_INVOKABLE SshSession *openHost(const QString &hostId, const QString &password = QString());
     Q_INVOKABLE void closeSession(SshSession *session);
     Q_INVOKABLE int indexOf(SshSession *session) const { return m_sessions.indexOf(session); }
+    Q_INVOKABLE SshSession *sessionAt(int index) const { return m_sessions.value(index); }
 
 signals:
     void countChanged();

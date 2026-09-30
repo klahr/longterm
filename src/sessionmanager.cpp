@@ -199,6 +199,11 @@ SshSession *SessionManager::addSession(const QString &name, const QString &host,
         else
             m_hosts->setSystem(hostId, session->systemId(), session->systemName());
     });
+    connect(session, &SshSession::stateChanged, this, [this, session]() {
+        const int row = m_sessions.indexOf(session);
+        if (row >= 0)
+            emit dataChanged(index(row), index(row));
+    });
     connect(session, &SshSession::connectionLost, this, [this, session]() {
         // Tried even when the bearer says offline, a failure waits for the next network change
         if (!m_appSettings->autoReconnect())

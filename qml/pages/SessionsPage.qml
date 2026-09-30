@@ -177,7 +177,8 @@ Page {
                             }
                             truncationMode: TruncationMode.Fade
                             font.pixelSize: Theme.fontSizeExtraSmall
-                            color: sessionItem.highlighted ? Theme.secondaryHighlightColor : Theme.secondaryColor
+                            color: session.state === SshSession.Connected ? "#4caf50"
+                                 : sessionItem.highlighted ? Theme.secondaryHighlightColor : Theme.secondaryColor
                         }
                     }
 

@@ -11,6 +11,7 @@
 #include "keystore.h"
 #include "knownhosts.h"
 #include "secretvault.h"
+#include "sessionfilter.h"
 #include "sessionmanager.h"
 #include "sshsession.h"
 #include "terminal.h"
@@ -34,6 +35,7 @@ int main(int argc, char *argv[])
     qmlRegisterUncreatableType<Terminal>("rs.r8.longterm", 1, 0, "Terminal",
                                          QStringLiteral("Terminals belong to a session"));
     qmlRegisterType<TerminalView>("rs.r8.longterm", 1, 0, "TerminalView");
+    qmlRegisterType<SessionFilter>("rs.r8.longterm", 1, 0, "SessionFilter");
 
     AppSettings appSettings;
     ColorSchemes colorSchemes;
