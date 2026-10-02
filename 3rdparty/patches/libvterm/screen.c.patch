@@ -48,16 +48,36 @@
        if(selective && cell->pen.protected_cell)
          continue;
  
-@@ -659,10 +674,15 @@
+@@ -518,7 +533,8 @@
+   int old_row = old_rows - 1;
+   int new_row = new_rows - 1;
+ 
+-  VTermPos old_cursor = statefields->pos;
++  bool track = active || bufidx == BUFIDX_PRIMARY;
++  VTermPos old_cursor = active ? statefields->pos : screen->state->saved.pos;
+   VTermPos new_cursor = { -1, -1 };
+ 
+ #ifdef DEBUG_REFLOW
+@@ -563,7 +579,7 @@
+ 
+     if(new_row_start < 0 && /* we'd fall off the top */
+         spare_rows >= 0 && /* we actually have spare rows */
+-        (!active || new_cursor.row == -1 || (new_cursor.row - new_row_start) < new_rows))
++        (!track || new_cursor.row == -1 || (new_cursor.row - new_row_start) < new_rows))
+     {
+       /* Attempt to scroll content down into the blank rows at the bottom to
+        * make it fit
+@@ -659,21 +675,31 @@
        new_cursor.col = new_cols-1;
    }
  
 -  /* We really expect the cursor position to be set by now */
-+  /* The cursor should have been placed by now; when some state combination
-+   * leaves it unplaced, keep it where it was rather than aborting */
-   if(active && (new_cursor.row == -1 || new_cursor.col == -1)) {
+-  if(active && (new_cursor.row == -1 || new_cursor.col == -1)) {
 -    fprintf(stderr, "screen_resize failed to update cursor position\n");
 -    abort();
++  /* The cursor should have been placed by now; when some state combination
++   * leaves it unplaced, keep it where it was rather than aborting */
++  if(track && (new_cursor.row == -1 || new_cursor.col == -1)) {
 +    new_cursor.row = old_cursor.row < new_rows ? old_cursor.row : new_rows - 1;
 +    new_cursor.col = old_cursor.col < new_cols ? old_cursor.col : new_cols - 1;
 +    if(new_cursor.row < 0)
@@ -67,3 +87,30 @@
    }
  
    if(old_row >= 0 && bufidx == BUFIDX_PRIMARY) {
+     /* Push spare lines to scrollback buffer */
+-    if(screen->callbacks && screen->callbacks->sb_pushline)
++    if(screen->callbacks && screen->callbacks->sb_pushline) {
++      ScreenCell *shown = screen->buffer;
++      screen->buffer = old_buffer;
+       for(int row = 0; row <= old_row; row++)
+         sb_pushline_from_row(screen, row);
++      screen->buffer = shown;
++    }
+     if(active)
+       statefields->pos.row -= (old_row + 1);
+   }
+-  if(new_row >= 0 && bufidx == BUFIDX_PRIMARY &&
++  int blank_below = new_rows - 1 - (new_cursor.row > final_blank_row - 1 ? new_cursor.row : final_blank_row - 1);
++  if(new_row >= 0 && bufidx == BUFIDX_PRIMARY && blank_below <= 0 &&
+       screen->callbacks && screen->callbacks->sb_popline) {
+     /* Try to backfill rows by popping scrollback buffer */
+     while(new_row >= 0) {
+@@ -739,6 +765,8 @@
+ 
+   if(active)
+     statefields->pos = new_cursor;
++  else if(track)
++    screen->state->saved.pos = new_cursor;
+ 
+   return;
+ }

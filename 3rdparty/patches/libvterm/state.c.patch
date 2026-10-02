@@ -45,7 +45,7 @@
        putglyph(state, state->combine_chars, state->combine_width, state->pos);
        state->pos.col += state->combine_width;
      }
-@@ -1979,10 +1989,17 @@
+@@ -1979,10 +1989,12 @@
    state->rows = rows;
    state->cols = cols;
  
@@ -59,11 +59,20 @@
 +  state->scrollregion_bottom = -1;
 +  state->scrollregion_left = 0;
 +  state->scrollregion_right = -1;
-+
+ 
+   VTermStateFields fields = {
+     .pos       = state->pos,
+@@ -2024,6 +2036,13 @@
+ 
+   state->lineinfo = state->lineinfos[state->mode.alt_screen ? BUFIDX_ALTSCREEN : BUFIDX_PRIMARY];
+ 
 +  /* DECRC and leaving the alternate screen restore this position, which
 +   * must be on the new screen */
 +  UBOUND(state->saved.pos.row, state->rows - 1);
 +  UBOUND(state->saved.pos.col, state->cols - 1);
- 
-   VTermStateFields fields = {
-     .pos       = state->pos,
++  LBOUND(state->saved.pos.row, 0);
++  LBOUND(state->saved.pos.col, 0);
++
+   if(state->at_phantom && state->pos.col < cols-1) {
+     state->at_phantom = 0;
+     state->pos.col++;
