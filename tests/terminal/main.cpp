@@ -284,6 +284,18 @@ static void testAltScreenScroll()
     sent.clear();
     v.scroll(-2);
     CHECK(sent == "\x1b[B\x1b[B", "alt screen scroll down sent '%s'", sent.toHex().constData());
+    t.write("\x1b[?1000h\x1b[?1006h");
+    const QByteArray at = QByteArray::number(t.columns() / 2 + 1) + ";" + QByteArray::number(t.rows() / 2 + 1) + "M";
+    sent.clear();
+    v.scroll(2);
+    CHECK(sent == "\x1b[<64;" + at + "\x1b[<64;" + at, "mouse wheel up sent '%s'", sent.constData());
+    sent.clear();
+    v.scroll(-1);
+    CHECK(sent == "\x1b[<65;" + at, "mouse wheel down sent '%s'", sent.constData());
+    t.write("\x1b[?1000l");
+    sent.clear();
+    v.scroll(1);
+    CHECK(sent == "\x1b[A", "after mouse off sent '%s'", sent.toHex().constData());
     t.write("\x1b[?1049l");
     v.scroll(5);
     CHECK(v.scrollOffset() == 5, "after alt screen offset %d", v.scrollOffset());

@@ -282,6 +282,11 @@ void TerminalView::scroll(int lines)
         setScrollOffset(m_scrollOffset + lines);
         return;
     }
+    if (m_terminal->mouseReporting()) {
+        for (int i = qAbs(lines); i > 0; --i)
+            m_terminal->sendWheel(lines > 0, m_terminal->rows() / 2, m_terminal->columns() / 2);
+        return;
+    }
     const VTermKey key = lines > 0 ? VTERM_KEY_UP : VTERM_KEY_DOWN;
     for (int i = qAbs(lines); i > 0; --i)
         m_terminal->sendKey(key, VTERM_MOD_NONE);

@@ -33,6 +33,7 @@ Terminal::Terminal(QObject *parent)
     , m_columns(80)
     , m_cursorVisible(true)
     , m_altScreen(false)
+    , m_mouseMode(VTERM_PROP_MOUSE_NONE)
     , m_clipboardTooLarge(false)
     , m_scrolledLines(0)
     , m_droppedLines(0)
@@ -133,6 +134,12 @@ void Terminal::sendChar(uint ucs4, VTermModifier modifiers)
     vterm_keyboard_unichar(m_vterm, ucs4, VTermModifier(modifiers & ~VTERM_MOD_SHIFT));
 }
 
+void Terminal::sendWheel(bool up, int row, int column)
+{
+    vterm_mouse_move(m_vterm, row, column, VTERM_MOD_NONE);
+    vterm_mouse_button(m_vterm, up ? 4 : 5, true, VTERM_MOD_NONE);
+}
+
 void Terminal::paste(const QString &text)
 {
     // Terminals send carriage returns for Enter, and brackets let the remote
@@ -203,6 +210,9 @@ int Terminal::onSetTermProp(VTermProp prop, VTermValue *value, void *user)
     case VTERM_PROP_ALTSCREEN:
         terminal->m_altScreen = value->boolean;
         emit terminal->contentChanged();
+        return 1;
+    case VTERM_PROP_MOUSE:
+        terminal->m_mouseMode = value->number;
         return 1;
     case VTERM_PROP_TITLE:
         if (value->string.initial)
