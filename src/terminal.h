@@ -33,6 +33,7 @@ public:
     QString title() const { return m_title; }
     VTermPos cursorPosition() const { return m_cursor; }
     bool cursorVisible() const { return m_cursorVisible; }
+    bool altScreen() const { return m_altScreen; }
 
     // Rows below zero address the scrollback, -1 being the most recent line
     VTermScreenCell cell(int row, int column) const;
@@ -75,6 +76,7 @@ private:
     int m_columns;
     VTermPos m_cursor;
     bool m_cursorVisible;
+    bool m_altScreen;
     QString m_title;
     QByteArray m_pendingTitle;
     QByteArray m_pendingClipboard;

@@ -58,6 +58,7 @@ public:
     Q_INVOKABLE void sendKey(int key);
     Q_INVOKABLE void sendText(const QString &text);
     Q_INVOKABLE void paste(const QString &text);
+    Q_INVOKABLE void scroll(int lines);
 
     // Selection points are in item coordinates
     Q_INVOKABLE void startSelection(qreal x, qreal y);

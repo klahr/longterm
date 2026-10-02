@@ -177,7 +177,7 @@ void TerminalView::setCursorColor(const QColor &color)
 
 void TerminalView::setScrollOffset(int offset)
 {
-    const int maximum = m_terminal ? m_terminal->scrollbackLines() : 0;
+    const int maximum = m_terminal && !m_terminal->altScreen() ? m_terminal->scrollbackLines() : 0;
     offset = qBound(0, offset, maximum);
     if (m_scrollOffset == offset)
         return;
@@ -272,6 +272,19 @@ void TerminalView::paste(const QString &text)
     clearSelection();
     setScrollOffset(0);
     m_terminal->paste(text);
+}
+
+void TerminalView::scroll(int lines)
+{
+    if (!m_terminal || lines == 0)
+        return;
+    if (!m_terminal->altScreen()) {
+        setScrollOffset(m_scrollOffset + lines);
+        return;
+    }
+    const VTermKey key = lines > 0 ? VTERM_KEY_UP : VTERM_KEY_DOWN;
+    for (int i = qAbs(lines); i > 0; --i)
+        m_terminal->sendKey(key, VTERM_MOD_NONE);
 }
 
 void TerminalView::startSelection(qreal x, qreal y)

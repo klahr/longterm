@@ -32,6 +32,7 @@ Terminal::Terminal(QObject *parent)
     , m_rows(24)
     , m_columns(80)
     , m_cursorVisible(true)
+    , m_altScreen(false)
     , m_clipboardTooLarge(false)
     , m_scrolledLines(0)
     , m_droppedLines(0)
@@ -197,6 +198,10 @@ int Terminal::onSetTermProp(VTermProp prop, VTermValue *value, void *user)
     switch (prop) {
     case VTERM_PROP_CURSORVISIBLE:
         terminal->m_cursorVisible = value->boolean;
+        emit terminal->contentChanged();
+        return 1;
+    case VTERM_PROP_ALTSCREEN:
+        terminal->m_altScreen = value->boolean;
         emit terminal->contentChanged();
         return 1;
     case VTERM_PROP_TITLE:

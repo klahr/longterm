@@ -216,16 +216,16 @@ Page {
 
                     MouseArea {
                         property real startY
-                        property int startOffset
+                        property int draggedLines
                         property bool dragged
                         property bool selecting
 
                         anchors.fill: parent
-                        // Keep the page from taking a selection drag as a back swipe
-                        preventStealing: selecting
+                        // Keep the page and the session swipe from taking over a selection or a scroll
+                        preventStealing: selecting || dragged
                         onPressed: {
                             startY = mouse.y
-                            startOffset = terminalView.scrollOffset
+                            draggedLines = 0
                             dragged = false
                         }
                         onPressAndHold: {
@@ -246,7 +246,9 @@ Page {
                                 dragged = true
                                 startY = mouse.y
                             }
-                            terminalView.scrollOffset = startOffset + Math.round((mouse.y - startY) / terminalView.cellHeight)
+                            var lines = Math.round((mouse.y - startY) / terminalView.cellHeight)
+                            terminalView.scroll(lines - draggedLines)
+                            draggedLines = lines
                         }
                         onDoubleClicked: terminalView.selectWordAt(mouse.x, mouse.y)
                         onReleased: selecting = false
