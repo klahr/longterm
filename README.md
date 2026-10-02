@@ -38,6 +38,15 @@ sfdk -c target=SailfishOS-5.1.0.11-armv7hl build
 
 The RPM ends up in `RPMS/`. Clean the build files between targets.
 
+The terminal tests build on the desktop with Qt 5, outside the source tree. The arguments are the
+number of fuzz and random-use runs:
+
+```
+mkdir build-tests && cd build-tests
+qmake ../tests/terminal/terminal.pro CONFIG+=sanitizer CONFIG+=sanitize_address CONFIG+=sanitize_undefined
+make && ./terminaltest 200 200
+```
+
 ## License
 
 GPLv3, see [LICENSE](LICENSE).
@@ -46,7 +55,7 @@ Bundled third-party code:
 
 - [libssh](https://www.libssh.org/) 0.12.2, LGPL-2.1 (`3rdparty/libssh`, submodule)
 - [libvterm](https://www.leonerd.org.uk/code/libvterm/) 0.3.3, MIT (`3rdparty/libvterm`, submodule of the
-  [Neovim mirror](https://github.com/neovim/libvterm)), with memory safety fixes from
+  [Neovim mirror](https://github.com/neovim/libvterm)), with memory safety and resize fixes from
   `3rdparty/patches/libvterm` applied at build time
 - [Source Code Pro](https://github.com/adobe-fonts/source-code-pro), SIL Open Font License 1.1 (`fonts`)
 - [Devicon](https://devicon.dev/) operating system logos, MIT (`qml/images/systems`). The logos are
