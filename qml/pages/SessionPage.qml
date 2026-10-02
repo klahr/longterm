@@ -90,8 +90,16 @@ Page {
         onVisibleChanged: {
             if (Qt.inputMethod.visible)
                 page.keyboardHidden = false
-            else if (page.status === PageStatus.Active)
+            else if (page.status === PageStatus.Active && Qt.application.state === Qt.ApplicationActive)
                 keyboardHideTimer.restart()
+        }
+    }
+
+    Connections {
+        target: Qt.application
+        onStateChanged: {
+            if (Qt.application.state === Qt.ApplicationActive && page.status === PageStatus.Active)
+                page.showKeyboard()
         }
     }
 
@@ -99,7 +107,8 @@ Page {
         id: keyboardHideTimer
         interval: 300
         onTriggered: {
-            if (page.status === PageStatus.Active && !Qt.inputMethod.visible)
+            if (page.status === PageStatus.Active && Qt.application.state === Qt.ApplicationActive
+                    && !Qt.inputMethod.visible)
                 page.keyboardHidden = true
         }
     }
