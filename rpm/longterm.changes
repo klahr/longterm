@@ -1,3 +1,20 @@
+* Fri Oct 02 2026 Joachim Klahr <klahr@r8.rs> 0.4.0-1
+- Fix shell output lost or replaced by old lines when the keyboard opens
+  or closes, also while a full-screen program like vim or htop is shown
+- Typing goes to the connection on screen after swiping to it, without
+  tapping the terminal first
+- Swipe the keyboard down to hide it, tap the terminal or the toolbar to
+  bring it back
+- Scrolling no longer jumps while output arrives, keeps going after a
+  flick and is not taken over by the swipe between connections
+- Scrolling in full-screen programs moves the program instead of showing
+  older output, with the mouse wheel when the program asks for it
+- Disconnected connections are left out of the swipe between connections,
+  connected ones show their status in green
+- Login prompts use the server's own labels, and a server that only
+  accepts keys says so
+- Fix operating system icons
+
 * Tue Sep 29 2026 Joachim Klahr <klahr@r8.rs> 0.3.0-1
 - Show the operating system of hosts and connections as an icon
 - About page with the licenses of the app and the components it uses

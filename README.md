@@ -6,6 +6,7 @@ An SSH terminal for Sailfish OS.
 - xterm-256color terminal (vim, top, tmux), pinch to zoom, copy and paste, search
   in the scrollback, links open in the browser, OSC 52 clipboard from the server
 - Configurable key toolbar with Ctrl, Alt, arrows, Home/End, PgUp/PgDn and F1-F12
+- Swipe the keyboard down for the whole screen, flick through the scrollback
 - Password, key and keyboard-interactive (one-time code) login
 - Saved hosts with jump hosts, local port forwards and agent forwarding,
   importable and exportable as ssh_config

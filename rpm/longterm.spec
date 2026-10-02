@@ -5,7 +5,7 @@ Name:       longterm
 %define __requires_exclude ^libssh.*$
 
 Summary:    Longterm SSH terminal
-Version:    0.3.0
+Version:    0.4.0
 Release:    1
 License:    GPLv3
 URL:        https://github.com/klahr/longterm
