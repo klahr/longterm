@@ -228,14 +228,21 @@ Page {
                         property int draggedLines
                         property bool dragged
                         property bool selecting
+                        property real lastY
+                        property real lastTime
+                        property real velocity
 
                         anchors.fill: parent
                         // Keep the page and the session swipe from taking over a selection or a scroll
                         preventStealing: selecting || dragged
                         onPressed: {
+                            flickTimer.stop()
                             startY = mouse.y
                             draggedLines = 0
                             dragged = false
+                            lastY = mouse.y
+                            lastTime = Date.now()
+                            velocity = 0
                         }
                         onPressAndHold: {
                             if (dragged)
@@ -258,9 +265,24 @@ Page {
                             var lines = Math.round((mouse.y - startY) / terminalView.cellHeight)
                             terminalView.scroll(lines - draggedLines)
                             draggedLines = lines
+                            var now = Date.now()
+                            if (now > lastTime) {
+                                var current = (mouse.y - lastY) / terminalView.cellHeight * 1000 / (now - lastTime)
+                                velocity = 0.6 * current + 0.4 * velocity
+                                lastY = mouse.y
+                                lastTime = now
+                            }
                         }
                         onDoubleClicked: terminalView.selectWordAt(mouse.x, mouse.y)
-                        onReleased: selecting = false
+                        onReleased: {
+                            selecting = false
+                            if (dragged && Date.now() - lastTime < 100 && Math.abs(velocity) > 10) {
+                                flickTimer.velocity = velocity
+                                flickTimer.remainder = 0
+                                flickTimer.offset = terminalView.scrollOffset
+                                flickTimer.start()
+                            }
+                        }
                         onCanceled: selecting = false
                         onClicked: {
                             if (dragged)
@@ -272,6 +294,36 @@ Page {
                             page.keyboardHidden = false
                             terminalView.forceActiveFocus()
                             Qt.inputMethod.show()
+                        }
+
+                        Timer {
+                            id: flickTimer
+
+                            property real velocity
+                            property real remainder
+                            property int offset
+
+                            interval: 16
+                            repeat: true
+                            onTriggered: {
+                                if (terminalView.scrollOffset === 0 && offset !== 0) {
+                                    stop()
+                                    return
+                                }
+                                remainder += velocity * interval / 1000
+                                var lines = remainder < 0 ? Math.ceil(remainder) : Math.floor(remainder)
+                                remainder -= lines
+                                velocity *= 0.95
+                                if (lines !== 0) {
+                                    var before = terminalView.scrollOffset
+                                    terminalView.scroll(lines)
+                                    if (terminalView.scrollOffset === before || terminalView.scrollOffset === 0)
+                                        stop()
+                                }
+                                offset = terminalView.scrollOffset
+                                if (Math.abs(velocity) < 2)
+                                    stop()
+                            }
                         }
                     }
                 }
