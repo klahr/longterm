@@ -10,6 +10,7 @@ Page {
     readonly property var session: sessionList.currentItem ? sessionList.currentItem.session : null
     readonly property Item currentView: sessionList.currentItem ? sessionList.currentItem.terminalView : null
     property bool searching
+    property bool keyboardHidden
 
     function startSearch() {
         searching = true
@@ -31,7 +32,7 @@ Page {
 
     function showKeyboard() {
         var item = sessionList.currentItem
-        if (!item || searching || item.session.prompting)
+        if (!item || searching || keyboardHidden || item.session.prompting)
             return
         item.terminalView.forceActiveFocus()
         Qt.inputMethod.show()
@@ -83,21 +84,23 @@ Page {
         }
     }
 
-    // Keep the keyboard open while the session is on screen
+    // A keyboard swiped down stays down until the terminal or the toolbar is tapped
     Connections {
         target: Qt.inputMethod
         onVisibleChanged: {
-            if (!Qt.inputMethod.visible && page.status === PageStatus.Active)
-                keyboardRestoreTimer.restart()
+            if (Qt.inputMethod.visible)
+                page.keyboardHidden = false
+            else if (page.status === PageStatus.Active)
+                keyboardHideTimer.restart()
         }
     }
 
     Timer {
-        id: keyboardRestoreTimer
+        id: keyboardHideTimer
         interval: 300
         onTriggered: {
             if (page.status === PageStatus.Active && !Qt.inputMethod.visible)
-                page.showKeyboard()
+                page.keyboardHidden = true
         }
     }
 
@@ -255,6 +258,7 @@ Page {
                                 terminalView.clearSelection()
                                 return
                             }
+                            page.keyboardHidden = false
                             terminalView.forceActiveFocus()
                             Qt.inputMethod.show()
                         }
@@ -629,6 +633,15 @@ Page {
             key: ({ label: "\u22ee", action: "menu" })
             view: page.currentView
             onClicked: keyBar.press(key)
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            enabled: page.keyboardHidden
+            onClicked: {
+                page.keyboardHidden = false
+                page.showKeyboard()
+            }
         }
     }
 }
