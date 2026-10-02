@@ -30,9 +30,10 @@ Page {
     }
 
     function showKeyboard() {
-        if (!currentView || searching || (session && session.prompting))
+        var item = sessionList.currentItem
+        if (!item || searching || item.session.prompting)
             return
-        currentView.forceActiveFocus()
+        item.terminalView.forceActiveFocus()
         Qt.inputMethod.show()
     }
 
@@ -140,8 +141,8 @@ Page {
         // Only once the swipe settles, as dropping the session left behind mid-swipe would shift the view
         onMovementEnded: visibleSessions.keep = page.session
         onCurrentItemChanged: {
-            if (!moving)
-                visibleSessions.keep = page.session
+            if (!moving && currentItem)
+                visibleSessions.keep = currentItem.session
             if (currentItem && page.status === PageStatus.Active)
                 page.showKeyboard()
         }
