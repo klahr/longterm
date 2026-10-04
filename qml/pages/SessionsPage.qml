@@ -154,6 +154,7 @@ Page {
                             spacing: Theme.paddingMedium
 
                             StatusDot {
+                                id: statusDot
                                 anchors.verticalCenter: parent.verticalCenter
                                 session: sessionItem.session
                             }
@@ -171,13 +172,15 @@ Page {
                             text: {
                                 switch (session.state) {
                                 case SshSession.Connecting: return qsTr("Connecting")
-                                case SshSession.Connected: return qsTr("Connected")
+                                case SshSession.Connected:
+                                    return statusDot.activityText.length > 0 ? statusDot.activityText : qsTr("Connected")
                                 default: return session.errorString.length > 0 ? session.errorString : qsTr("Disconnected")
                                 }
                             }
                             truncationMode: TruncationMode.Fade
                             font.pixelSize: Theme.fontSizeExtraSmall
-                            color: session.state === SshSession.Connected ? "#4caf50"
+                            color: statusDot.activity.length > 0 ? statusDot.activityColor
+                                 : session.state === SshSession.Connected ? "#4caf50"
                                  : sessionItem.highlighted ? Theme.secondaryHighlightColor : Theme.secondaryColor
                         }
                     }

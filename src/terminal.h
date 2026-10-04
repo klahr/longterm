@@ -18,6 +18,8 @@ class Terminal : public QObject
     Q_PROPERTY(int rows READ rows NOTIFY sizeChanged)
     Q_PROPERTY(int columns READ columns NOTIFY sizeChanged)
     Q_PROPERTY(QString title READ title NOTIFY titleChanged)
+    // What a program such as Claude Code reports it is doing: working, waiting, done or empty
+    Q_PROPERTY(QString activity READ activity NOTIFY activityChanged)
 
 public:
     explicit Terminal(QObject *parent = nullptr);
@@ -31,6 +33,8 @@ public:
     qint64 scrolledLines() const { return m_scrolledLines; }
     qint64 droppedLines() const { return m_droppedLines; }
     QString title() const { return m_title; }
+    QString activity() const { return m_activity; }
+    void clearActivity();
     VTermPos cursorPosition() const { return m_cursor; }
     bool cursorVisible() const { return m_cursorVisible; }
     bool altScreen() const { return m_altScreen; }
@@ -52,11 +56,14 @@ public:
 signals:
     void sizeChanged();
     void titleChanged();
+    void activityChanged();
     void contentChanged();
     void outputReady(const QByteArray &data);
     void bell();
     // A program asked to put text on the clipboard with OSC 52
     void clipboardRequested(const QString &text);
+    // A program asked for a desktop notification with OSC 9 or OSC 777, title may be empty
+    void notificationRequested(const QString &title, const QString &body);
 
 private:
     static void onOutput(const char *bytes, size_t length, void *user);
@@ -68,9 +75,13 @@ private:
     static int onPopLine(int columns, VTermScreenCell *cells, void *user);
     static int onClearScrollback(void *user);
     static int onSelectionSet(VTermSelectionMask mask, VTermStringFragment fragment, void *user);
+    static int onOsc(int command, VTermStringFragment fragment, void *user);
+    void notifyFromOsc(int command, const QByteArray &payload);
+    void setActivity(const QString &activity);
 
     static const VTermScreenCallbacks s_screenCallbacks;
     static const VTermSelectionCallbacks s_selectionCallbacks;
+    static const VTermStateFallbacks s_fallbacks;
 
     VTerm *m_vterm;
     VTermScreen *m_screen;
@@ -81,11 +92,13 @@ private:
     bool m_altScreen;
     int m_mouseMode;
     QString m_title;
+    QString m_activity;
     QByteArray m_pendingTitle;
     QByteArray m_pendingClipboard;
     // libvterm decodes OSC 52 into this, it would leak a buffer of its own
     char m_clipboardBuffer[4096];
     bool m_clipboardTooLarge;
+    QByteArray m_pendingOsc;
     QList<QVector<VTermScreenCell> > m_scrollback;
     qint64 m_scrolledLines;
     qint64 m_droppedLines;

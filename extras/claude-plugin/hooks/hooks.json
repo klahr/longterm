@@ -1,0 +1,10 @@
+{
+  "description": "Reports Claude's state to Longterm over the SSH terminal",
+  "hooks": {
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/longterm-hook.sh\" working" }] }],
+    "PostToolUse": [{ "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/longterm-hook.sh\" working" }] }],
+    "Notification": [{ "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/longterm-hook.sh\" notify" }] }],
+    "Stop": [{ "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/longterm-hook.sh\" done" }] }],
+    "SessionEnd": [{ "hooks": [{ "type": "command", "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/longterm-hook.sh\" clear" }] }]
+  }
+}

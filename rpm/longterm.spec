@@ -13,6 +13,7 @@ Source0:    %{name}-%{version}.tar.bz2
 Requires:   sailfishsilica-qt5 >= 0.10.9
 Requires:   qt5-qtfeedback
 Requires:   nemo-qml-plugin-notifications-qt5
+Requires:   nemo-qml-plugin-dbus-qt5
 Requires:   qt5-qtsvg-plugin-imageformat-svg
 BuildRequires:  pkgconfig(sailfishapp) >= 1.0.2
 BuildRequires:  pkgconfig(Qt5Core)

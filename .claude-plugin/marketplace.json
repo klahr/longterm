@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "longterm",
+  "description": "Claude Code plugins for the Longterm SSH terminal on Sailfish OS",
+  "owner": {
+    "name": "Joachim Klahr"
+  },
+  "plugins": [
+    {
+      "name": "longterm",
+      "description": "Shows in Longterm whether Claude is working, waiting for input or done, and notifies on the phone",
+      "source": "./extras/claude-plugin",
+      "category": "productivity",
+      "homepage": "https://github.com/klahr/longterm"
+    }
+  ]
+}

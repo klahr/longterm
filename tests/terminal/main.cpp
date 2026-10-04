@@ -354,6 +354,49 @@ static void testRandomUse(int iterations)
     }
 }
 
+static void testNotifications()
+{
+    Terminal t;
+    QStringList seen;
+    QObject::connect(&t, &Terminal::notificationRequested, [&](const QString &title, const QString &body) {
+        seen.append(title + QLatin1Char('|') + body);
+    });
+
+    t.write("\x1b]777;notify;Claude;Done; all good\x07");
+    t.write("\x1b]9;Waiting for input\x1b\\");
+    // ConEmu progress and other numbered commands are no notifications
+    t.write("\x1b]9;4;1;50\x07\x1b]9;4\x07");
+    t.write("\x1b]777;preexec\x07");
+    // Split across writes, as it arrives from the network
+    t.write("\x1b]777;notify;Cla");
+    t.write("ude;Needs approval\x07");
+    const QByteArray huge(100000, 'x');
+    t.write("\x1b]9;" + huge + "\x07");
+    t.write("after");
+
+    CHECK(seen.size() == 4, "%d notifications", seen.size());
+    if (seen.size() == 4) {
+        CHECK(seen.at(0) == QLatin1String("Claude|Done; all good"), "'%s'", qPrintable(seen.at(0)));
+        CHECK(seen.at(1) == QLatin1String("|Waiting for input"), "'%s'", qPrintable(seen.at(1)));
+        CHECK(seen.at(2) == QLatin1String("Claude|Needs approval"), "'%s'", qPrintable(seen.at(2)));
+        CHECK(seen.at(3).size() == 4096 + 1, "huge notification %d long", seen.at(3).size());
+    }
+    CHECK(rowText(t, 0) == QLatin1String("after"), "screen '%s'", qPrintable(rowText(t, 0)));
+
+    t.write("\x1b]777;longterm-status;working\x07");
+    CHECK(t.activity() == QLatin1String("working"), "activity '%s'", qPrintable(t.activity()));
+    t.write("\x1b]777;longterm-status;waiting\x07");
+    CHECK(t.activity() == QLatin1String("waiting"), "activity '%s'", qPrintable(t.activity()));
+    t.write("\x1b]777;longterm-status;done\x07");
+    CHECK(t.activity() == QLatin1String("done"), "activity '%s'", qPrintable(t.activity()));
+    t.write("\x1b]777;longterm-status;bogus\x07");
+    CHECK(t.activity().isEmpty(), "activity '%s' after unknown status", qPrintable(t.activity()));
+    t.write("\x1b]777;longterm-status;done\x07");
+    t.clearActivity();
+    CHECK(t.activity().isEmpty(), "activity '%s' after clear", qPrintable(t.activity()));
+    CHECK(seen.size() == 4, "status changes made notifications");
+}
+
 int main(int argc, char **argv)
 {
     if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
@@ -365,6 +408,7 @@ int main(int argc, char **argv)
     testViewScroll();
     testDragWithOutput();
     testAltScreenScroll();
+    testNotifications();
     testRandomUse(argc > 2 ? atoi(argv[2]) : 200);
     testFuzz(argc > 1 ? atoi(argv[1]) : 200);
     std::printf("%d failures\n", failures);

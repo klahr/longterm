@@ -7,7 +7,7 @@
 static const int MaxScrollbackLines = 5000;
 // Larger clipboard writes from the server are dropped
 static const int MaxClipboardBytes = 1024 * 1024;
-// Longer titles are cut
+// Longer titles and notifications are cut
 static const int MaxTitleBytes = 4096;
 
 const VTermScreenCallbacks Terminal::s_screenCallbacks = {
@@ -25,6 +25,16 @@ const VTermScreenCallbacks Terminal::s_screenCallbacks = {
 const VTermSelectionCallbacks Terminal::s_selectionCallbacks = {
     &Terminal::onSelectionSet,
     nullptr, // query, the server is not allowed to read the clipboard
+};
+
+const VTermStateFallbacks Terminal::s_fallbacks = {
+    nullptr, // control
+    nullptr, // csi
+    &Terminal::onOsc,
+    nullptr, // dcs
+    nullptr, // apc
+    nullptr, // pm
+    nullptr, // sos
 };
 
 Terminal::Terminal(QObject *parent)
@@ -60,6 +70,7 @@ Terminal::Terminal(QObject *parent)
     vterm_screen_reset(m_screen, 1);
     vterm_state_set_selection_callbacks(vterm_obtain_state(m_vterm), &s_selectionCallbacks, this,
                                         m_clipboardBuffer, sizeof(m_clipboardBuffer));
+    vterm_screen_set_unrecognised_fallbacks(m_screen, &s_fallbacks, this);
 }
 
 Terminal::~Terminal()
@@ -294,4 +305,69 @@ int Terminal::onSelectionSet(VTermSelectionMask, VTermStringFragment fragment, v
         terminal->m_pendingClipboard.clear();
     }
     return 1;
+}
+
+int Terminal::onOsc(int command, VTermStringFragment fragment, void *user)
+{
+    if (command != 9 && command != 777)
+        return 0;
+    Terminal *terminal = static_cast<Terminal *>(user);
+    if (fragment.initial)
+        terminal->m_pendingOsc.clear();
+    if (terminal->m_pendingOsc.size() < MaxTitleBytes)
+        terminal->m_pendingOsc.append(fragment.str, qMin(int(fragment.len),
+                                                         MaxTitleBytes - terminal->m_pendingOsc.size()));
+    if (fragment.final) {
+        terminal->notifyFromOsc(command, terminal->m_pendingOsc);
+        terminal->m_pendingOsc.clear();
+    }
+    return 1;
+}
+
+void Terminal::notifyFromOsc(int command, const QByteArray &payload)
+{
+    if (command == 9) {
+        // iTerm2 takes the whole payload as the message, ConEmu uses "9;<number>;..." for
+        // progress and other commands, which are no notifications
+        int digits = 0;
+        while (digits < payload.size() && payload.at(digits) >= '0' && payload.at(digits) <= '9')
+            ++digits;
+        if (digits > 0 && (digits == payload.size() || payload.at(digits) == ';'))
+            return;
+        if (!payload.trimmed().isEmpty())
+            emit notificationRequested(QString(), QString::fromUtf8(payload).trimmed());
+        return;
+    }
+
+    const QList<QByteArray> parts = payload.split(';');
+    // "777;longterm-status;<working|waiting|done>", anything else clears it
+    if (parts.at(0) == "longterm-status") {
+        const QByteArray status = parts.size() > 1 ? parts.at(1).trimmed() : QByteArray();
+        if (status == "working" || status == "waiting" || status == "done")
+            setActivity(QString::fromLatin1(status));
+        else
+            setActivity(QString());
+        return;
+    }
+
+    // "777;notify;<title>;<body>", the body may contain semicolons
+    if (parts.size() < 3 || parts.at(0) != "notify")
+        return;
+    const QString title = QString::fromUtf8(parts.at(1)).trimmed();
+    const QString body = QString::fromUtf8(payload.mid(parts.at(0).size() + parts.at(1).size() + 2)).trimmed();
+    if (!title.isEmpty() || !body.isEmpty())
+        emit notificationRequested(title, body);
+}
+
+void Terminal::clearActivity()
+{
+    setActivity(QString());
+}
+
+void Terminal::setActivity(const QString &activity)
+{
+    if (m_activity == activity)
+        return;
+    m_activity = activity;
+    emit activityChanged();
 }

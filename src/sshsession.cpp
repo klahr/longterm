@@ -1617,6 +1617,9 @@ void SshSession::setState(State state)
     if (m_state == state)
         return;
     m_state = state;
+    // A new connection starts a new shell, whatever ran in the old one is gone
+    if (state == Connecting)
+        m_terminal->clearActivity();
     emit stateChanged();
 }
 
