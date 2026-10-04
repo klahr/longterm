@@ -389,6 +389,14 @@ static void testNotifications()
     CHECK(t.activity() == QLatin1String("waiting"), "activity '%s'", qPrintable(t.activity()));
     t.write("\x1b]777;longterm-status;done\x07");
     CHECK(t.activity() == QLatin1String("done"), "activity '%s'", qPrintable(t.activity()));
+    CHECK(t.activityDetail().isEmpty(), "detail '%s' without one", qPrintable(t.activityDetail()));
+    t.write("\x1b]777;longterm-status;working;Running a; b\x07");
+    CHECK(t.activity() == QLatin1String("working") && t.activityDetail() == QLatin1String("Running a; b"),
+          "activity '%s' detail '%s'", qPrintable(t.activity()), qPrintable(t.activityDetail()));
+    t.write("\x1b]777;longterm-status;working;" + QByteArray(1000, 'y') + "\x07");
+    CHECK(t.activityDetail().size() == 200, "long detail %d characters", t.activityDetail().size());
+    t.write("\x1b]777;longterm-status;working\x07");
+    CHECK(t.activityDetail().isEmpty(), "detail '%s' kept", qPrintable(t.activityDetail()));
     t.write("\x1b]777;longterm-status;bogus\x07");
     CHECK(t.activity().isEmpty(), "activity '%s' after unknown status", qPrintable(t.activity()));
     t.write("\x1b]777;longterm-status;done\x07");

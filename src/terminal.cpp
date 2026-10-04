@@ -9,6 +9,8 @@ static const int MaxScrollbackLines = 5000;
 static const int MaxClipboardBytes = 1024 * 1024;
 // Longer titles and notifications are cut
 static const int MaxTitleBytes = 4096;
+// Longer activity details are cut, they share a line with the connection name
+static const int MaxActivityDetailCharacters = 200;
 
 const VTermScreenCallbacks Terminal::s_screenCallbacks = {
     &Terminal::onDamage,
@@ -340,13 +342,19 @@ void Terminal::notifyFromOsc(int command, const QByteArray &payload)
     }
 
     const QList<QByteArray> parts = payload.split(';');
-    // "777;longterm-status;<working|waiting|done>", anything else clears it
+    // "777;longterm-status;<working|waiting|done>[;<detail>]", anything else clears it,
+    // the detail may contain semicolons
     if (parts.at(0) == "longterm-status") {
         const QByteArray status = parts.size() > 1 ? parts.at(1).trimmed() : QByteArray();
-        if (status == "working" || status == "waiting" || status == "done")
-            setActivity(QString::fromLatin1(status));
-        else
+        if (status == "working" || status == "waiting" || status == "done") {
+            QString detail;
+            if (parts.size() > 2)
+                detail = QString::fromUtf8(payload.mid(parts.at(0).size() + parts.at(1).size() + 2))
+                             .simplified().left(MaxActivityDetailCharacters);
+            setActivity(QString::fromLatin1(status), detail);
+        } else {
             setActivity(QString());
+        }
         return;
     }
 
@@ -364,10 +372,11 @@ void Terminal::clearActivity()
     setActivity(QString());
 }
 
-void Terminal::setActivity(const QString &activity)
+void Terminal::setActivity(const QString &activity, const QString &detail)
 {
-    if (m_activity == activity)
+    if (m_activity == activity && m_activityDetail == detail)
         return;
     m_activity = activity;
+    m_activityDetail = detail;
     emit activityChanged();
 }

@@ -20,6 +20,8 @@ class Terminal : public QObject
     Q_PROPERTY(QString title READ title NOTIFY titleChanged)
     // What a program such as Claude Code reports it is doing: working, waiting, done or empty
     Q_PROPERTY(QString activity READ activity NOTIFY activityChanged)
+    // What exactly, such as "Reading terminal.cpp", empty when the program did not say
+    Q_PROPERTY(QString activityDetail READ activityDetail NOTIFY activityChanged)
 
 public:
     explicit Terminal(QObject *parent = nullptr);
@@ -34,6 +36,7 @@ public:
     qint64 droppedLines() const { return m_droppedLines; }
     QString title() const { return m_title; }
     QString activity() const { return m_activity; }
+    QString activityDetail() const { return m_activityDetail; }
     void clearActivity();
     VTermPos cursorPosition() const { return m_cursor; }
     bool cursorVisible() const { return m_cursorVisible; }
@@ -77,7 +80,7 @@ private:
     static int onSelectionSet(VTermSelectionMask mask, VTermStringFragment fragment, void *user);
     static int onOsc(int command, VTermStringFragment fragment, void *user);
     void notifyFromOsc(int command, const QByteArray &payload);
-    void setActivity(const QString &activity);
+    void setActivity(const QString &activity, const QString &detail = QString());
 
     static const VTermScreenCallbacks s_screenCallbacks;
     static const VTermSelectionCallbacks s_selectionCallbacks;
@@ -93,6 +96,7 @@ private:
     int m_mouseMode;
     QString m_title;
     QString m_activity;
+    QString m_activityDetail;
     QByteArray m_pendingTitle;
     QByteArray m_pendingClipboard;
     // libvterm decodes OSC 52 into this, it would leak a buffer of its own

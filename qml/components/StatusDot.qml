@@ -15,7 +15,9 @@ Rectangle {
                                          : activity === "waiting" ? "#e5484d"
                                          : activity === "done" ? "#30a46c"
                                          : "transparent"
-    readonly property string activityText: activity === "working" ? qsTr("Working...")
+    readonly property string activityDetail: activity.length > 0 ? session.terminal.activityDetail : ""
+    readonly property string activityText: activityDetail.length > 0 ? activityDetail + "..."
+                                         : activity === "working" ? qsTr("Working...")
                                          : activity === "waiting" ? qsTr("Waiting for input...")
                                          : activity === "done" ? qsTr("Done")
                                          : ""

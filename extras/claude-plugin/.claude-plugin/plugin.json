@@ -1,6 +1,6 @@
 {
   "name": "longterm",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Shows in Longterm whether Claude is working, waiting for input or done, and notifies on the phone",
   "author": {
     "name": "Joachim Klahr"
