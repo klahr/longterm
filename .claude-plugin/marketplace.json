@@ -9,7 +9,7 @@
     {
       "name": "longterm",
       "description": "Shows in Longterm whether Claude is working, waiting for input or done, and notifies on the phone",
-      "source": "./extras/claude-plugin",
+      "source": "./extras/agent-plugin",
       "category": "productivity",
       "homepage": "https://github.com/klahr/longterm"
     }

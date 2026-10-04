@@ -1,0 +1,20 @@
+#!/bin/sh
+# Reports what a coding agent is doing to Longterm, the SSH terminal for Sailfish OS, through the
+# terminal of the SSH login. Does nothing outside SSH.
+#
+# Usage: longterm-status working|waiting|done [detail]   colours the session, "Reading foo.c"
+#        longterm-status clear                           back to the plain connection state
+#        longterm-status notify <title> <body>           a notification on the phone
+[ -w "$SSH_TTY" ] || exit 0
+
+# Control characters would end the escape sequence early, Longterm cuts what is too long
+clean() { printf '%s' "$1" | tr '\n\t' '  ' | tr -d '\000-\037\177' | cut -c1-1000; }
+
+case "$1" in
+    working|waiting|done) printf '\033]777;longterm-status;%s;%s\007' "$1" "$(clean "$2")" >> "$SSH_TTY" ;;
+    clear) printf '\033]777;longterm-status;none\007' >> "$SSH_TTY" ;;
+    # The title ends at the first semicolon, the body may have them
+    notify) printf '\033]777;notify;%s;%s\007' "$(clean "$2" | tr -d ';')" "$(clean "$3")" >> "$SSH_TTY" ;;
+    *) echo "usage: longterm-status working|waiting|done [detail] | clear | notify <title> <body>" >&2; exit 1 ;;
+esac
+exit 0

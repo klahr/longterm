@@ -23,27 +23,49 @@ An SSH terminal for Sailfish OS.
 Needs Sailfish OS 5.1 or newer, on aarch64 or armv7hl. The app is sandboxed
 and asks for the Internet and Secrets permissions on first start.
 
-## Claude Code status
+## Coding agent status
 
-Longterm can show what [Claude Code](https://claude.com/claude-code) is doing in a session. The dot
-and the line under the connection turn blue for "Working...", red for "Waiting for input..." when
-Claude asks for permission or asks a question, and green for "Done". Questions and finished turns
-also notify, and tapping the notification opens the session.
+Longterm can show what a coding agent such as [Claude Code](https://claude.com/claude-code) or
+[Codex](https://developers.openai.com/codex) is doing in a session. The dot and the line under the
+connection turn blue while it works, with what it is doing such as "Reading terminal.cpp...", red for
+"Waiting for input..." when it asks for permission or asks a question, and green for "Done".
+Questions and finished turns also notify, and tapping the notification opens the session.
 
-On the server, install the plugin from this repository in Claude Code. It needs `jq`:
+Both use the same plugin from this repository, installed on the server. It needs `jq`.
+
+Claude Code, inside Claude:
 
 ```
 /plugin marketplace add klahr/longterm
 /plugin install longterm@longterm
 ```
 
-The plugin takes effect in Claude sessions started afterwards. Its hooks write to `$SSH_TTY`, the
-terminal of the SSH login, and do nothing outside SSH. Inside tmux, `$SSH_TTY` keeps naming the
-login that started tmux, so after reattaching from a new connection the status goes nowhere.
+Codex, which also needs `hooks = true` under `[features]` in `~/.codex/config.toml`:
 
-Any program can do the same with escape sequences: `ESC ] 777 ; longterm-status ; working|waiting|done BEL`
-sets the status, any other value clears it, and `ESC ] 777 ; notify ; title ; body BEL` or
-`ESC ] 9 ; body BEL` notifies.
+```
+codex plugin marketplace add klahr/longterm
+```
+
+then install Longterm from `/plugins` in Codex and trust its hooks when Codex asks to review them.
+
+The plugin takes effect in sessions started afterwards. Its hooks write to `$SSH_TTY`, the terminal
+of the SSH login, and do nothing outside SSH. Inside tmux, `$SSH_TTY` keeps naming the login that
+started tmux, so after reattaching from a new connection the status goes nowhere.
+
+Other tools can report the same way with `extras/agent-plugin/bin/longterm-status`, a plain shell
+script:
+
+```
+longterm-status working "Running the tests"
+longterm-status waiting
+longterm-status done
+longterm-status clear
+longterm-status notify "Build" "Finished in 3 minutes"
+```
+
+It writes escape sequences that any program can send directly:
+`ESC ] 777 ; longterm-status ; working|waiting|done [; detail] BEL` sets the status, any other
+value clears it, and `ESC ] 777 ; notify ; title ; body BEL` or `ESC ] 9 ; body BEL` notifies.
 
 ## Building
 

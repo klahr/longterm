@@ -1,0 +1,20 @@
+{
+  "name": "longterm",
+  "interface": {
+    "displayName": "Longterm"
+  },
+  "plugins": [
+    {
+      "name": "longterm",
+      "source": {
+        "source": "local",
+        "path": "./extras/agent-plugin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

@@ -1,12 +1,8 @@
 #!/bin/sh
-# Tells Longterm on the phone what Claude is doing: the status dot colour and notifications.
-# Usage: longterm-hook.sh <working|tool|done|clear|notify>, the hook's JSON on stdin
+# Claude Code hooks for Longterm, maps hook events to longterm-status.
+# Usage: claude.sh <prompt|tool|tool-done|notification|stop|end>, the hook's JSON on stdin
+status() { sh "$(dirname "$0")/../bin/longterm-status" "$@"; }
 [ -w "$SSH_TTY" ] || exit 0
-
-# Control characters would end the escape sequence early
-clean() { printf '%s' "$1" | tr '\n\t' '  ' | tr -d '\000-\037\177' | cut -c1-200; }
-status() { printf '\033]777;longterm-status;%s;%s\007' "$1" "$(clean "$2")" >> "$SSH_TTY"; }
-notify() { printf '\033]777;notify;Claude;%s\007' "$(clean "$1")" >> "$SSH_TTY"; }
 
 # What a tool call is about to do, in a few words
 describe_tool() {
@@ -29,8 +25,7 @@ describe_tool() {
 }
 
 case "$1" in
-    working|done) status "$1" ;;
-    clear) status none ;;
+    prompt|tool-done) status working ;;
     tool)
         input=$(cat)
         case "$(printf '%s' "$input" | jq -r '.tool_name // empty')" in
@@ -39,14 +34,15 @@ case "$1" in
             *) status working "$(printf '%s' "$input" | describe_tool)" ;;
         esac
         ;;
-    notify)
+    notification)
         input=$(cat)
         # Only a question needs an answer, the idle reminder after a finished turn does not
         case "$(printf '%s' "$input" | jq -r '.notification_type // empty')" in
             permission_prompt|elicitation_dialog) status waiting ;;
         esac
-        notify "$(printf '%s' "$input" | jq -r '.message // empty')"
+        status notify Claude "$(printf '%s' "$input" | jq -r '.message // empty')"
         ;;
+    stop) status done; status notify Claude Done ;;
+    end) status clear ;;
 esac
-[ "$1" = done ] && notify "Done"
 exit 0
