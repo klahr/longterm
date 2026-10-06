@@ -243,6 +243,8 @@ public:
         , m_resizePending(false)
         , m_promptAnswered(false)
         , m_agent(nullptr)
+        , m_key(nullptr)
+        , m_jumpKey(nullptr)
         , m_jumpProxy(nullptr)
         , m_systemProbe(nullptr)
     {
@@ -367,6 +369,8 @@ protected:
         }
         delete m_agent;
         m_agent = nullptr;
+        ssh_key_free(takeKey(&m_key));
+        ssh_key_free(takeKey(&m_jumpKey));
     }
 
 private:
@@ -530,7 +534,7 @@ private:
         ssh_channel channel = nullptr;
         int fds[2] = { -1, -1 };
         if (m_stop.loadAcquire() || !verifyHost(jump, m_config.jumpHost, m_config.jumpPort, true)
-                || !authenticate(jump, &m_config.jumpCredentials, true)) {
+                || !authenticate(jump, &m_config.jumpCredentials, takeKey(&m_jumpKey), true)) {
             // Already reported
         } else if (!(channel = ssh_channel_new(jump))
                    || ssh_channel_open_forward(channel, m_config.host.constData(), m_config.port, "127.0.0.1", 0) != SSH_OK) {
@@ -554,6 +558,9 @@ private:
 
     bool openShell(ssh_session session, ssh_channel *channelOut)
     {
+        if ((m_config.hasJump && !loadKey(&m_config.jumpCredentials, true, &m_jumpKey))
+                || !loadKey(&m_config.credentials, false, &m_key))
+            return false;
         setOptions(session, m_config.host, m_config.port, m_config.user);
         if (m_config.hasJump ? !connectJump(session)
                              : !connectSocket(session, m_config.host, m_config.port, false))
@@ -576,7 +583,7 @@ private:
         if (guessSystem(QByteArray(ssh_get_serverbanner(session)), &systemId, &systemName))
             emit systemDetected(systemId, systemName, false);
 
-        if (!authenticate(session, &m_config.credentials, false))
+        if (!authenticate(session, &m_config.credentials, takeKey(&m_key), false))
             return false;
 
         ssh_channel channel = ssh_channel_new(session);
@@ -657,51 +664,74 @@ private:
         m_systemProbeOutput.clear();
     }
 
-    bool authenticate(ssh_session session, SshCredentials *credentials, bool jump)
+    static ssh_key takeKey(ssh_key *key)
+    {
+        ssh_key taken = *key;
+        *key = nullptr;
+        return taken;
+    }
+
+    // Decrypts the private key, asking for its passphrase, before anything connects. A server
+    // drops a connection still waiting for the passphrase after its LoginGraceTime, and newer
+    // OpenSSH then refuses connections from the address for a while
+    bool loadKey(SshCredentials *credentials, bool jump, ssh_key *keyOut)
+    {
+        *keyOut = nullptr;
+        if (credentials->privateKey.isEmpty())
+            return true;
+        ssh_key key = nullptr;
+        int rc = ssh_pki_import_privkey_base64(credentials->privateKey.constData(), nullptr, nullptr, nullptr, &key);
+        // Kept encrypted, so its passphrase is asked for on every connect
+        const bool encrypted = rc != SSH_OK && KeyStore::isEncrypted(credentials->privateKey);
+        const QString problem = encrypted ? KeyStore::encryptionProblem(credentials->privateKey) : QString();
+        if (!problem.isEmpty()) {
+            credentials->privateKey.fill('\0');
+            report(problem, false, jump);
+            return false;
+        }
+        if (encrypted) {
+            const QString prompt = jump ? tr("Key passphrase for the jump host %1@%2").arg(QString::fromUtf8(m_config.jumpUser),
+                                                                                          QString::fromUtf8(m_config.jumpHost))
+                                        : tr("Key passphrase for %1@%2").arg(QString::fromUtf8(m_config.user),
+                                                                            QString::fromUtf8(m_config.host));
+            for (int attempt = 0; attempt < PasswordAttempts && rc != SSH_OK; ++attempt) {
+                QByteArray passphrase;
+                if (!ask(attempt > 0 ? tr("Wrong passphrase, try again.") + QLatin1Char('\n') + prompt : prompt,
+                         tr("Passphrase"), false, &passphrase)) {
+                    credentials->privateKey.fill('\0');
+                    return false;
+                }
+                rc = ssh_pki_import_privkey_base64(credentials->privateKey.constData(), passphrase.constData(),
+                                                   nullptr, nullptr, &key);
+                passphrase.fill('\0');
+            }
+        }
+        credentials->privateKey.fill('\0');
+        if (rc != SSH_OK) {
+            report(encrypted ? tr("Wrong key passphrase") : tr("Could not load private key"), false, jump);
+            return false;
+        }
+        *keyOut = key;
+        return true;
+    }
+
+    // Takes ownership of key, which is null for hosts without one
+    bool authenticate(ssh_session session, SshCredentials *credentials, ssh_key key, bool jump)
     {
         int rc = ssh_userauth_none(session, nullptr);
-        if (rc == SSH_AUTH_SUCCESS)
+        if (rc == SSH_AUTH_SUCCESS) {
+            ssh_key_free(key);
             return true;
-        if (rc == SSH_AUTH_ERROR)
+        }
+        if (rc == SSH_AUTH_ERROR) {
+            ssh_key_free(key);
             return fail(session, tr("Authentication failed"), true, jump);
+        }
         int methods = ssh_userauth_list(session, nullptr);
 
         bool passwordLeft = !credentials->password.isEmpty();
-        const bool hadKey = !credentials->privateKey.isEmpty();
-        if (!credentials->privateKey.isEmpty()) {
-            ssh_key key = nullptr;
-            rc = ssh_pki_import_privkey_base64(credentials->privateKey.constData(), nullptr, nullptr, nullptr, &key);
-            // Kept encrypted, so its passphrase is asked for on every connect
-            const bool encrypted = rc != SSH_OK && KeyStore::isEncrypted(credentials->privateKey);
-            const QString problem = encrypted ? KeyStore::encryptionProblem(credentials->privateKey) : QString();
-            if (!problem.isEmpty()) {
-                credentials->privateKey.fill('\0');
-                report(problem, false, jump);
-                return false;
-            }
-            if (encrypted) {
-                const QString prompt = jump ? tr("Key passphrase for the jump host %1@%2").arg(QString::fromUtf8(m_config.jumpUser),
-                                                                                              QString::fromUtf8(m_config.jumpHost))
-                                            : tr("Key passphrase for %1@%2").arg(QString::fromUtf8(m_config.user),
-                                                                                QString::fromUtf8(m_config.host));
-                for (int attempt = 0; attempt < PasswordAttempts && rc != SSH_OK; ++attempt) {
-                    QByteArray passphrase;
-                    if (!ask(attempt > 0 ? tr("Wrong passphrase, try again.") + QLatin1Char('\n') + prompt : prompt,
-                             tr("Passphrase"), false, &passphrase)) {
-                        credentials->privateKey.fill('\0');
-                        return false;
-                    }
-                    rc = ssh_pki_import_privkey_base64(credentials->privateKey.constData(), passphrase.constData(),
-                                                       nullptr, nullptr, &key);
-                    passphrase.fill('\0');
-                }
-            }
-            credentials->privateKey.fill('\0');
-            if (rc != SSH_OK) {
-                // The session's own error is about the server, not the key
-                report(encrypted ? tr("Wrong key passphrase") : tr("Could not load private key"), false, jump);
-                return false;
-            }
+        const bool hadKey = key != nullptr;
+        if (key) {
             rc = ssh_userauth_publickey(session, nullptr, key);
             if (!jump && m_config.forwardAgent && (rc == SSH_AUTH_SUCCESS || rc == SSH_AUTH_PARTIAL)) {
                 m_agent = new SshAgent(key);
@@ -1221,6 +1251,9 @@ private:
     bool m_promptAnswered;
     QByteArray m_promptAnswer;
     SshAgent *m_agent;
+    // Loaded before connecting, until authentication takes them
+    ssh_key m_key;
+    ssh_key m_jumpKey;
     JumpProxy *m_jumpProxy;
     ssh_channel m_systemProbe;
     QByteArray m_systemProbeOutput;
