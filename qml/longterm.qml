@@ -65,6 +65,33 @@ ApplicationWindow {
         notification.publish()
     }
 
+    function transferFinished(session, name, upload, localPath, error) {
+        var notification = transferNotificationComponent.createObject(app)
+        notification.summary = error.length > 0 ? (upload ? qsTr("Upload of %1 failed").arg(name)
+                                                          : qsTr("Download of %1 failed").arg(name))
+                                                : (upload ? qsTr("Uploaded %1").arg(name) : qsTr("Downloaded %1").arg(name))
+        notification.previewSummary = notification.summary
+        notification.body = error.length > 0 ? error : localPath
+        notification.previewBody = notification.body
+        // A download opens in the app for its type, an upload shows its session
+        if (!upload && error.length === 0) {
+            notification.remoteActions = [ {
+                "name": "default",
+                "displayName": qsTr("Open"),
+                "service": "rs.r8.longterm",
+                "path": "/rs/r8/longterm",
+                "iface": "rs.r8.longterm",
+                "method": "openFile",
+                "arguments": [ localPath ]
+            } ]
+        } else {
+            notification.remoteActions = [ showAction(session) ]
+        }
+        notification.publish()
+        // Published notifications stay without it, each transfer has one of its own
+        notification.destroy()
+    }
+
     // Tapping a notification calls showSession over D-Bus
     function showAction(session) {
         return {
@@ -124,10 +151,20 @@ ApplicationWindow {
            + "    <method name=\"showSession\">\n"
            + "      <arg name=\"key\" type=\"s\" direction=\"in\"/>\n"
            + "    </method>\n"
+           + "    <method name=\"openFile\">\n"
+           + "      <arg name=\"path\" type=\"s\" direction=\"in\"/>\n"
+           + "    </method>\n"
            + "  </interface>\n"
 
         function showSession(key) {
             app.showSession(key)
+        }
+
+        // Only what the app downloaded itself
+        function openFile(path) {
+            var downloads = StandardPaths.download
+            if (path.indexOf(downloads + "/") === 0 && path.indexOf("/../") < 0)
+                Qt.openUrlExternally("file://" + path.split("/").map(encodeURIComponent).join("/"))
         }
     }
 
@@ -136,6 +173,24 @@ ApplicationWindow {
         Notification {
             appName: "Longterm"
             appIcon: "longterm"
+        }
+    }
+
+    Component {
+        id: transferNotificationComponent
+        Notification {
+            appName: "Longterm"
+            appIcon: "longterm"
+            isTransient: true
+        }
+    }
+
+    Instantiator {
+        model: sessionManager
+
+        delegate: Connections {
+            target: model.session.files
+            onTransferFinished: app.transferFinished(model.session, name, upload, localPath, error)
         }
     }
 

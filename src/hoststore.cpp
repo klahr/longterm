@@ -8,10 +8,28 @@
 
 // A damaged file can claim any number of entries
 static const int MaxHosts = 1000;
+static const int MaxKeepAliveInterval = 3600;
+static const int MaxConnectTimeout = 300;
 
 static QString singleLine(const QString &text)
 {
     return QString(text).replace(QRegExp(QStringLiteral("[\\x0000-\\x001f\\x007f]")), QStringLiteral(" ")).trimmed();
+}
+
+static QStringList singleLines(const QVariant &value)
+{
+    QStringList lines;
+    for (const QString &entry : value.toStringList()) {
+        const QString line = singleLine(entry);
+        if (!line.isEmpty())
+            lines.append(line);
+    }
+    return lines;
+}
+
+static int seconds(const QVariant &value, int maximum)
+{
+    return qBound(0, value.toInt(), maximum);
 }
 
 HostStore::HostStore(SecretVault *vault, QObject *parent)
@@ -67,8 +85,7 @@ QHash<int, QByteArray> HostStore::roleNames() const
 QString HostStore::saveHost(const QString &hostId, const QString &name,
                             const QString &address, int port, const QString &user,
                             const QString &keyId, const QString &password,
-                            bool rememberPassword, const QString &jumpHostId,
-                            bool forwardAgent, const QStringList &localForwards)
+                            bool rememberPassword, const QVariantMap &options)
 {
     Host host;
     int row = indexOf(hostId);
@@ -90,11 +107,17 @@ QString HostStore::saveHost(const QString &hostId, const QString &name,
     host.port = port >= 1 && port <= 65535 ? port : 22;
     host.user = singleLine(user);
     host.keyId = keyId;
+    const QString jumpHostId = options.value(QStringLiteral("jumpHostId")).toString();
     host.jumpHostId = jumpHostId == host.id ? QString() : jumpHostId;
-    host.forwardAgent = forwardAgent;
-    host.localForwards.clear();
-    for (const QString &forward : localForwards)
-        host.localForwards.append(singleLine(forward));
+    host.forwardAgent = options.value(QStringLiteral("forwardAgent")).toBool();
+    host.localForwards = singleLines(options.value(QStringLiteral("localForwards")));
+    host.remoteForwards = singleLines(options.value(QStringLiteral("remoteForwards")));
+    host.dynamicForwards = singleLines(options.value(QStringLiteral("dynamicForwards")));
+    host.environment = singleLines(options.value(QStringLiteral("environment")));
+    host.tmuxSession = singleLine(options.value(QStringLiteral("tmuxSession")).toString());
+    host.keepAliveInterval = seconds(options.value(QStringLiteral("keepAliveInterval")), MaxKeepAliveInterval);
+    host.connectTimeout = seconds(options.value(QStringLiteral("connectTimeout")), MaxConnectTimeout);
+    host.mosh = options.value(QStringLiteral("mosh")).toBool();
 
     if (row >= 0) {
         m_hosts[row] = host;
@@ -206,6 +229,13 @@ QVariantMap HostStore::host(const QString &hostId) const
     map.insert(QStringLiteral("jumpHostId"), host.jumpHostId);
     map.insert(QStringLiteral("forwardAgent"), host.forwardAgent);
     map.insert(QStringLiteral("localForwards"), host.localForwards);
+    map.insert(QStringLiteral("remoteForwards"), host.remoteForwards);
+    map.insert(QStringLiteral("dynamicForwards"), host.dynamicForwards);
+    map.insert(QStringLiteral("environment"), host.environment);
+    map.insert(QStringLiteral("tmuxSession"), host.tmuxSession);
+    map.insert(QStringLiteral("keepAliveInterval"), host.keepAliveInterval);
+    map.insert(QStringLiteral("connectTimeout"), host.connectTimeout);
+    map.insert(QStringLiteral("mosh"), host.mosh);
     return map;
 }
 
@@ -253,6 +283,14 @@ static bool isPort(const QString &text)
     return ok && port >= 1 && port <= 65535;
 }
 
+// Single quotes for a POSIX shell, left out where nothing needs them
+static QString shellQuote(const QString &text)
+{
+    if (!text.isEmpty() && !text.contains(QRegExp(QStringLiteral("[^A-Za-z0-9_.,:@%+/-]"))))
+        return text;
+    return QLatin1Char('\'') + QString(text).replace(QLatin1Char('\''), QStringLiteral("'\\''")) + QLatin1Char('\'');
+}
+
 static QString configAlias(const QString &name)
 {
     return name.simplified().replace(QLatin1Char(' '), QLatin1Char('-'));
@@ -277,6 +315,28 @@ QString HostStore::exportConfig() const
             const int colon = forward.indexOf(QLatin1Char(':'));
             config += QStringLiteral("    LocalForward %1 %2\n").arg(forward.left(colon), forward.mid(colon + 1));
         }
+        for (const QString &forward : host.remoteForwards) {
+            const int colon = forward.indexOf(QLatin1Char(':'));
+            config += QStringLiteral("    RemoteForward %1 %2\n").arg(forward.left(colon), forward.mid(colon + 1));
+        }
+        for (const QString &port : host.dynamicForwards)
+            config += QStringLiteral("    DynamicForward %1\n").arg(port);
+        for (const QString &variable : host.environment) {
+            const int equals = variable.indexOf(QLatin1Char('='));
+            // OpenSSH has no escape for a quote inside a quoted value
+            QString value = variable.mid(equals + 1).remove(QLatin1Char('"'));
+            if (value.isEmpty() || value.contains(QRegExp(QStringLiteral("[\\s#]"))))
+                value = QLatin1Char('"') + value + QLatin1Char('"');
+            config += QStringLiteral("    SetEnv %1=%2\n").arg(variable.left(equals), value);
+        }
+        if (host.keepAliveInterval > 0)
+            config += QStringLiteral("    ServerAliveInterval %1\n").arg(host.keepAliveInterval);
+        if (host.connectTimeout > 0)
+            config += QStringLiteral("    ConnectTimeout %1\n").arg(host.connectTimeout);
+        if (!host.tmuxSession.isEmpty()) {
+            config += QStringLiteral("    RemoteCommand tmux new-session -A -s %1\n").arg(shellQuote(host.tmuxSession));
+            config += QStringLiteral("    RequestTTY yes\n");
+        }
         config += QLatin1Char('\n');
     }
     return config;
@@ -287,11 +347,17 @@ int HostStore::importConfig(const QString &config)
     struct Entry {
         QString name;
         QString address;
-        int port;
+        int port = 22;
         QString user;
         QString jump;
-        bool forwardAgent;
+        bool forwardAgent = false;
         QStringList localForwards;
+        QStringList remoteForwards;
+        QStringList dynamicForwards;
+        QStringList environment;
+        QString tmuxSession;
+        int keepAliveInterval = 0;
+        int connectTimeout = 0;
     };
     QList<Entry> entries;
     Entry *entry = nullptr;
@@ -319,8 +385,10 @@ int HostStore::importConfig(const QString &config)
                 entry = nullptr;
                 continue;
             }
-            entries.append(Entry { alias, alias, 22, QString(), QString(), false, QStringList() });
+            entries.append(Entry());
             entry = &entries.last();
+            entry->name = alias;
+            entry->address = alias;
         } else if (key == QLatin1String("match")) {
             entry = nullptr;
         } else if (!entry) {
@@ -347,6 +415,29 @@ int HostStore::importConfig(const QString &config)
             if (arguments.size() == 2 && isPort(value.section(QLatin1Char(':'), -1))
                     && target.contains(QLatin1Char(':')) && isPort(target.section(QLatin1Char(':'), -1)))
                 entry->localForwards.append(value.section(QLatin1Char(':'), -1) + QLatin1Char(':') + target);
+        } else if (key == QLatin1String("remoteforward")) {
+            // The single argument form is a SOCKS proxy on the server, which is not supported
+            const QString target = arguments.value(1);
+            if (arguments.size() == 2 && isPort(value.section(QLatin1Char(':'), -1))
+                    && target.contains(QLatin1Char(':')) && isPort(target.section(QLatin1Char(':'), -1)))
+                entry->remoteForwards.append(value.section(QLatin1Char(':'), -1) + QLatin1Char(':') + target);
+        } else if (key == QLatin1String("dynamicforward")) {
+            if (isPort(value.section(QLatin1Char(':'), -1)))
+                entry->dynamicForwards.append(value.section(QLatin1Char(':'), -1));
+        } else if (key == QLatin1String("setenv")) {
+            for (const QString &variable : arguments) {
+                if (variable.contains(QRegExp(QStringLiteral("^[A-Za-z_][A-Za-z0-9_]*="))))
+                    entry->environment.append(variable);
+            }
+        } else if (key == QLatin1String("serveraliveinterval")) {
+            entry->keepAliveInterval = seconds(value, MaxKeepAliveInterval);
+        } else if (key == QLatin1String("connecttimeout")) {
+            entry->connectTimeout = seconds(value, MaxConnectTimeout);
+        } else if (key == QLatin1String("remotecommand")) {
+            // Only the tmux sessions exported above, other commands have no setting here
+            QRegExp tmux(QStringLiteral("^tmux\\s+(?:new-session|new)\\s+-A\\s+-s\\s*(?:'([^']*)'|(\\S+))$"));
+            if (tmux.exactMatch(rest))
+                entry->tmuxSession = tmux.cap(1).isEmpty() ? tmux.cap(2) : tmux.cap(1);
         }
     }
 
@@ -363,10 +454,20 @@ int HostStore::importConfig(const QString &config)
     for (const Entry &imported : entries) {
         const int row = findName(imported.name);
         const Host existing = row >= 0 ? m_hosts.at(row) : Host();
+        QVariantMap options;
+        options.insert(QStringLiteral("forwardAgent"), imported.forwardAgent);
+        options.insert(QStringLiteral("localForwards"), imported.localForwards);
+        options.insert(QStringLiteral("remoteForwards"), imported.remoteForwards);
+        options.insert(QStringLiteral("dynamicForwards"), imported.dynamicForwards);
+        options.insert(QStringLiteral("environment"), imported.environment);
+        options.insert(QStringLiteral("tmuxSession"), imported.tmuxSession);
+        options.insert(QStringLiteral("keepAliveInterval"), imported.keepAliveInterval);
+        options.insert(QStringLiteral("connectTimeout"), imported.connectTimeout);
+        // ssh_config has no mosh, so an updated host keeps its own
+        options.insert(QStringLiteral("mosh"), row >= 0 && existing.mosh);
         ids.append(saveHost(row >= 0 ? existing.id : QString(), imported.name, imported.address,
                             imported.port, imported.user, row >= 0 ? existing.keyId : QString(),
-                            QString(), row >= 0 && existing.hasPassword, QString(),
-                            imported.forwardAgent, imported.localForwards));
+                            QString(), row >= 0 && existing.hasPassword, options));
     }
     m_batch = false;
     // Jumps can name hosts that come later in the file
@@ -444,6 +545,13 @@ void HostStore::load()
         host.jumpHostId = m_settings.value(QStringLiteral("jumpHostId")).toString();
         host.forwardAgent = m_settings.value(QStringLiteral("forwardAgent"), false).toBool();
         host.localForwards = m_settings.value(QStringLiteral("localForwards")).toStringList();
+        host.remoteForwards = m_settings.value(QStringLiteral("remoteForwards")).toStringList();
+        host.dynamicForwards = m_settings.value(QStringLiteral("dynamicForwards")).toStringList();
+        host.environment = m_settings.value(QStringLiteral("environment")).toStringList();
+        host.tmuxSession = m_settings.value(QStringLiteral("tmuxSession")).toString();
+        host.keepAliveInterval = seconds(m_settings.value(QStringLiteral("keepAliveInterval")), MaxKeepAliveInterval);
+        host.connectTimeout = seconds(m_settings.value(QStringLiteral("connectTimeout")), MaxConnectTimeout);
+        host.mosh = m_settings.value(QStringLiteral("mosh"), false).toBool();
         host.systemId = m_settings.value(QStringLiteral("systemId")).toString();
         host.systemName = m_settings.value(QStringLiteral("systemName")).toString();
         if (host.id.isEmpty())
@@ -470,6 +578,13 @@ void HostStore::save()
         m_settings.setValue(QStringLiteral("jumpHostId"), host.jumpHostId);
         m_settings.setValue(QStringLiteral("forwardAgent"), host.forwardAgent);
         m_settings.setValue(QStringLiteral("localForwards"), host.localForwards);
+        m_settings.setValue(QStringLiteral("remoteForwards"), host.remoteForwards);
+        m_settings.setValue(QStringLiteral("dynamicForwards"), host.dynamicForwards);
+        m_settings.setValue(QStringLiteral("environment"), host.environment);
+        m_settings.setValue(QStringLiteral("tmuxSession"), host.tmuxSession);
+        m_settings.setValue(QStringLiteral("keepAliveInterval"), host.keepAliveInterval);
+        m_settings.setValue(QStringLiteral("connectTimeout"), host.connectTimeout);
+        m_settings.setValue(QStringLiteral("mosh"), host.mosh);
         m_settings.setValue(QStringLiteral("systemId"), host.systemId);
         m_settings.setValue(QStringLiteral("systemName"), host.systemName);
     }

@@ -83,6 +83,29 @@
     </message>
 </context>
 <context>
+    <name>DownloadFileDialog</name>
+    <message>
+        <source>Download file</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Download</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>File on the server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Path, from the home folder or starting with /</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Saved in the Downloads folder</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>EditSessionDialog</name>
     <message>
         <source>Save</source>
@@ -137,6 +160,105 @@
     </message>
     <message>
         <source>Copies the private key to the clipboard in OpenSSH format, still protected by its passphrase.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>FilesPage</name>
+    <message>
+        <source>%1 B</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 kB</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 MB</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 GB</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 TB</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Replacing %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Upload to %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Upload file</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>New folder</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Home folder</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Refresh</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Files</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Files need the SSH connection, connect again to use them</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Parent folder</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Download</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Rename</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Delete</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>link</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Empty folder</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pull down to upload a file</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Waiting: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Uploading %1, %2 of %3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Downloading %1, %2 of %3</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -271,6 +393,98 @@
     </message>
     <message>
         <source>Port forwards, e.g. 8080:localhost:80</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>These take effect for saved hosts, give the host a name to use them.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Use mosh</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Attach to tmux</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Opens a tmux session instead of a plain shell, or the one running already, so what runs in it is still there after disconnecting</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>tmux session</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remote port forwards, remotePort:host:port</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Use remotePort:host:port, separated by commas</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remote forwards, e.g. 9000:localhost:8000</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The server listens on the remote port and passes connections on to the host and port as seen from the phone</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>SOCKS proxy ports</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Use port numbers, separated by commas</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>SOCKS proxy port, e.g. 1080</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A SOCKS proxy on the phone, for apps that connect out through the server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Environment variables, NAME=value on each line</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Use NAME=value, one on each line</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Environment, e.g. LANG=en_US.UTF-8</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Servers only take the variables their AcceptEnv setting lists, often LANG and LC_*.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Keepalive interval in seconds</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Keepalive interval, 60 seconds</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>How often an idle connection sends something, so routers do not drop it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Connect timeout in seconds</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Connect timeout, 15 seconds</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The session stays through network changes and sleep, and typing does not wait for the network. Needs mosh-server on the host and UDP ports 60000 to 61000 open to it, without mosh-server it connects over SSH.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -487,6 +701,29 @@
     </message>
 </context>
 <context>
+    <name>MoshClient</name>
+    <message>
+        <source>The server sent an invalid mosh key</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Invalid server address</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>AES-OCB encryption is not available</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not create socket: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The server speaks mosh protocol version %1 instead of %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>SessionMenuPage</name>
     <message>
         <source>Paste</source>
@@ -522,6 +759,18 @@
     </message>
     <message>
         <source>Find</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Upload file</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Files</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Download file</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -594,6 +843,12 @@
     <message>
         <source>%1 lines below</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>No contact with the server for %n seconds</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
     </message>
 </context>
 <context>
@@ -763,6 +1018,100 @@
     </message>
     <message>
         <source>Read %1 hosts</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>SftpBrowser</name>
+    <message>
+        <source>Not connected</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Disconnected</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>SftpEngine</name>
+    <message>
+        <source>Disconnected</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The server does not offer SFTP: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>it does not exist</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>permission denied</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>it already exists</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>the server does not support it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>the server refused</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not open %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>the home folder</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cancelled</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not create %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not delete %1, only empty folders can be deleted</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not delete %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not rename %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not read %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 is a folder, only files can be downloaded</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>download</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not save %1: %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not read %1: %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not write %1</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -955,6 +1304,73 @@
         <source>The server only accepts keys, choose one for this host</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Could not connect to %1:%2 for remote port %3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not start tmux</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The server did not take %1, its AcceptEnv setting says which variables it takes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not start mosh-server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not look up %1 for mosh: %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>SOCKS proxy on local port %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Forwarding remote port %1 to %2:%3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The server did not listen on port %1: %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The SSH connection has closed, reconnect for files</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Nothing came back from mosh-server on UDP port %1, a firewall may be in the way</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The SSH connection closed: %1. The terminal goes on over mosh, files and port forwards stop.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>mosh-server did not start, is mosh installed on the server? Going on over SSH.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>mosh-server did not start (%1), going on over SSH.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>StatusDot</name>
+    <message>
+        <source>Working...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Waiting for input...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Done</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>ToolbarKeysPage</name>
@@ -971,6 +1387,30 @@
     <name>longterm</name>
     <message>
         <source>Terminal bell</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Upload of %1 failed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Download of %1 failed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Uploaded %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Downloaded %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

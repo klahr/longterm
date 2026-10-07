@@ -6,16 +6,31 @@
 #include <QString>
 #include <QStringList>
 
+#include "sftpengine.h"
 #include "terminal.h"
 
 #include <functional>
 
 class SecretVault;
+class SftpBrowser;
 class SshWorker;
 
 struct SshCredentials {
     QByteArray password;
     QByteArray privateKey;
+};
+
+// How a saved host connects, see HostStore::Host
+struct SshOptions {
+    bool forwardAgent = false;
+    QStringList localForwards;
+    QStringList remoteForwards;
+    QStringList dynamicForwards;
+    QStringList environment;
+    QString tmuxSession;
+    int keepAliveInterval = 0;
+    int connectTimeout = 0;
+    bool mosh = false;
 };
 
 class SshSession : public QObject
@@ -43,6 +58,13 @@ class SshSession : public QObject
     Q_PROPERTY(bool promptCanRemember READ promptCanRemember NOTIFY promptChanged)
     Q_PROPERTY(QString systemId READ systemId NOTIFY systemChanged)
     Q_PROPERTY(QString systemName READ systemName NOTIFY systemChanged)
+    // The terminal of this connection goes over mosh
+    Q_PROPERTY(bool mosh READ usesMosh NOTIFY moshChanged)
+    // How long a mosh server has been quiet, 0 while it is heard from
+    Q_PROPERTY(int silentSeconds READ silentSeconds NOTIFY silentSecondsChanged)
+    // Files and transfers need the SSH connection, which under mosh can close while the terminal goes on
+    Q_PROPERTY(bool filesAvailable READ filesAvailable NOTIFY filesAvailableChanged)
+    Q_PROPERTY(SftpBrowser *files READ files CONSTANT)
 
 public:
     enum State {
@@ -82,6 +104,10 @@ public:
     QString systemId() const { return m_systemId; }
     QString systemName() const { return m_systemName; }
     void setSystem(const QString &id, const QString &name);
+    bool usesMosh() const { return m_usesMosh; }
+    int silentSeconds() const { return m_silentSeconds; }
+    bool filesAvailable() const { return m_state == Connected && m_sshUp; }
+    SftpBrowser *files() const { return m_files; }
     bool promptCanRemember() const { return m_promptCanRemember && m_canRememberPassword && m_auth.kind == Password; }
     // Set for sessions of a saved host, which has somewhere to keep the password
     void setCanRememberPassword(bool canRemember) { m_canRememberPassword = canRemember; }
@@ -96,9 +122,8 @@ public:
     void clearJumpHost() { m_hasJump = false; }
     // Takes effect on the next connect, a live connection keeps its own
     void setEndpoint(const QString &host, int port, const QString &user);
-    void setForwardAgent(bool forwardAgent) { m_forwardAgent = forwardAgent; }
-    // Entries are "localPort:host:remotePort"
-    void setLocalForwards(const QStringList &forwards) { m_localForwards = forwards; }
+    // Takes effect on the next connect
+    void setOptions(const SshOptions &options) { m_options = options; }
 
     static QString knownHostsPath();
 
@@ -117,6 +142,10 @@ public:
     Q_INVOKABLE void answerPrompt(const QString &answer, bool remember = false);
     // Stops a connection the network has gone from under, reporting it as lost
     void dropConnection();
+    // Lets a mosh connection know the network changed, it goes on from the new one
+    void roam();
+    // False when there is no connection to send it over
+    bool sendSftp(const SftpRequest &request);
 
 signals:
     void nameChanged();
@@ -130,6 +159,9 @@ signals:
     void promptChanged();
     void systemChanged();
     void endpointChanged();
+    void moshChanged();
+    void silentSecondsChanged();
+    void filesAvailableChanged();
     // The user asked to save the password they typed
     void passwordRemembered(const QString &password);
     // An established connection dropped for network reasons and has wound down
@@ -146,6 +178,10 @@ private slots:
     void onWorkerFinished();
     void onTerminalOutput(const QByteArray &data);
     void onTerminalSizeChanged();
+    void onMoshStarted();
+    void onMoshData(const QByteArray &data, bool replace);
+    void onMoshSilence(int seconds);
+    void onSshClosed();
 
 private:
     // Where the secrets for a login come from
@@ -162,6 +198,9 @@ private:
     void startWorker(const SshCredentials &credentials, const SshCredentials &jumpCredentials);
     void setPrompt(bool prompting, const QString &text, bool echo, bool canRemember, const QString &label);
     void stopWorker();
+    void setUsesMosh(bool usesMosh);
+    void setSilentSeconds(int seconds);
+    void setSshUp(bool up);
 
     QString m_name;
     QString m_startupScript;
@@ -195,8 +234,11 @@ private:
     int m_jumpPort;
     QString m_jumpUser;
     AuthSource m_jumpAuth;
-    bool m_forwardAgent;
-    QStringList m_localForwards;
+    SshOptions m_options;
+    bool m_usesMosh;
+    int m_silentSeconds;
+    bool m_sshUp;
+    SftpBrowser *m_files;
 };
 
 #endif // SSHSESSION_H

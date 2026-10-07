@@ -2,7 +2,8 @@
 # Codex hooks for Longterm, maps hook events to longterm-status.
 # Usage: codex.sh <prompt|tool|tool-done|permission|stop|interrupt|end>, the hook's JSON on stdin
 status() { sh "$(dirname "$0")/../bin/longterm-status" "$@"; }
-[ -w "$SSH_TTY" ] || exit 0
+# longterm-status finds the terminal, inside tmux as well
+[ -w "$SSH_TTY" ] || [ -n "$TMUX" ] || exit 0
 
 # What a tool call is about to do, in a few words. apply_patch carries the whole patch as its
 # command, the files are on its "*** Update File: <path>" lines

@@ -22,6 +22,8 @@ class Terminal : public QObject
     Q_PROPERTY(QString activity READ activity NOTIFY activityChanged)
     // What exactly, such as "Reading terminal.cpp", empty when the program did not say
     Q_PROPERTY(QString activityDetail READ activityDetail NOTIFY activityChanged)
+    // The shell's directory when it reports it with OSC 7, otherwise empty
+    Q_PROPERTY(QString workingDirectory READ workingDirectory NOTIFY workingDirectoryChanged)
 
 public:
     explicit Terminal(QObject *parent = nullptr);
@@ -38,6 +40,8 @@ public:
     QString activity() const { return m_activity; }
     QString activityDetail() const { return m_activityDetail; }
     void clearActivity();
+    QString workingDirectory() const { return m_workingDirectory; }
+    void clearWorkingDirectory();
     VTermPos cursorPosition() const { return m_cursor; }
     bool cursorVisible() const { return m_cursorVisible; }
     bool altScreen() const { return m_altScreen; }
@@ -49,7 +53,11 @@ public:
     QColor color(VTermColor color) const;
 
     void resize(int rows, int columns);
-    void write(const QByteArray &data);
+    // Lines scrolled off the top go to the scrollback unless keepScrolledLines is false
+    void write(const QByteArray &data, bool keepScrolledLines = true);
+    // Off when something in between, such as mosh-server, answers the program's
+    // questions about the terminal itself
+    void setAnswersQueries(bool answers) { m_answersQueries = answers; }
     void sendKey(VTermKey key, VTermModifier modifiers);
     void sendChar(uint ucs4, VTermModifier modifiers);
     void sendWheel(bool up, int row, int column);
@@ -60,6 +68,7 @@ signals:
     void sizeChanged();
     void titleChanged();
     void activityChanged();
+    void workingDirectoryChanged();
     void contentChanged();
     void outputReady(const QByteArray &data);
     void bell();
@@ -97,6 +106,10 @@ private:
     QString m_title;
     QString m_activity;
     QString m_activityDetail;
+    QString m_workingDirectory;
+    bool m_answersQueries;
+    bool m_writing;
+    bool m_keepScrolledLines;
     QByteArray m_pendingTitle;
     QByteArray m_pendingClipboard;
     // libvterm decodes OSC 52 into this, it would leak a buffer of its own

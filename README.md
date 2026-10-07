@@ -8,8 +8,12 @@ An SSH terminal for Sailfish OS.
 - Configurable key toolbar with Ctrl, Alt, arrows, Home/End, PgUp/PgDn and F1-F12
 - Swipe the keyboard down for the whole screen, flick through the scrollback
 - Password, key and keyboard-interactive (one-time code) login
-- Saved hosts with jump hosts, local port forwards and agent forwarding,
-  importable and exportable as ssh_config
+- mosh, which keeps the session through network changes, sleep and dead spots
+- Files on the server: browse, download into Downloads, upload, rename and delete,
+  or download and upload a single file straight from the session menu
+- Saved hosts with jump hosts, local and remote port forwards, a SOCKS proxy, agent
+  forwarding, environment variables, keepalive and connect timeouts, and attaching to
+  a tmux session, importable and exportable as ssh_config
 - Shows the operating system of each host as an icon, detected when connecting
 - Ed25519, ECDSA and RSA keys and remembered passwords kept in the Sailfish
   Secrets keychain, private keys exportable with a passphrase
@@ -21,7 +25,23 @@ An SSH terminal for Sailfish OS.
   Solarized Dark and Light
 
 Needs Sailfish OS 5.1 or newer, on aarch64 or armv7hl. The app is sandboxed
-and asks for the Internet and Secrets permissions on first start.
+and asks for the Internet, Secrets and user directories permissions on first start, the last for
+downloading and uploading files.
+
+## mosh
+
+Turn on "Use mosh" for a saved host to run the terminal over [mosh](https://mosh.org). Longterm
+logs in over SSH, starts `mosh-server` there and talks to it over UDP, so the host needs mosh
+installed and UDP ports 60000 to 61000 reachable. Where mosh-server does not start, the session
+says so and goes on as a plain SSH session. The session survives changing networks and the
+phone sleeping, and shows how long the server has been silent when packets stop getting through.
+
+The SSH connection stays open next to it for files, port forwards and agent forwarding for as
+long as it lasts. If it drops, the terminal goes on over mosh and those stop until the next
+connect. Through a jump host, mosh-server is started over the jump but the UDP packets go to the
+host directly. mosh-server keeps escape sequences it does not know to itself, so programs cannot
+notify or report their status through it, see below. Typing is not predicted locally the way
+mosh's own client does.
 
 ## Coding agent status
 
@@ -49,8 +69,9 @@ codex plugin marketplace add klahr/longterm
 then install Longterm from `/plugins` in Codex and trust its hooks when Codex asks to review them.
 
 The plugin takes effect in sessions started afterwards. Its hooks write to `$SSH_TTY`, the terminal
-of the SSH login, and do nothing outside SSH. Inside tmux, `$SSH_TTY` keeps naming the login that
-started tmux, so after reattaching from a new connection the status goes nowhere.
+of the SSH login, and do nothing outside SSH. Inside tmux they write to the terminal of the client
+attached at the moment, when that came in over SSH, so reattaching from a new connection works.
+Over mosh the status cannot get through, mosh-server drops the escape sequences.
 
 Other tools can report the same way with `extras/agent-plugin/bin/longterm-status`, a plain shell
 script:
@@ -91,6 +112,23 @@ number of fuzz and random-use runs:
 mkdir build-tests && cd build-tests
 qmake ../tests/terminal/terminal.pro CONFIG+=sanitizer CONFIG+=sanitize_address CONFIG+=sanitize_undefined
 make && ./terminaltest 200 200
+```
+
+The mosh test runs the client against a local `mosh-server` through a relay that drops and reorders
+packets, the argument is the share dropped in percent:
+
+```
+qmake ../tests/mosh/mosh.pro && make && ./moshtest 30
+```
+
+The SSH test logs in to a real server on 127.0.0.1 and goes through the shell, tmux, forwards,
+files and mosh, see the top of `tests/ssh/main.cpp` for what it expects. It changes the test
+account, so run it in a container. It needs a build of the bundled libssh with server support:
+
+```
+cmake -S ../3rdparty/libssh -B libssh-build -DWITH_SERVER=ON -DWITH_GSSAPI=OFF -DUNIT_TESTING=OFF
+cmake --build libssh-build
+qmake ../tests/ssh/ssh.pro LIBSSH_BUILD=$PWD/libssh-build && make && ./sshtest
 ```
 
 ## License

@@ -5,16 +5,28 @@
 # Usage: longterm-status working|waiting|done [detail]   colours the session, "Reading foo.c"
 #        longterm-status clear                           back to the plain connection state
 #        longterm-status notify <title> <body>           a notification on the phone
-[ -w "$SSH_TTY" ] || exit 0
+tty=$SSH_TTY
+# Inside tmux $SSH_TTY is the login that started it, which may be long gone. The client
+# attached now is the one to tell, if it came in over SSH. Without /proc to tell, as on
+# macOS, it stays $SSH_TTY.
+if [ -n "$TMUX" ]; then
+    client=$(tmux display-message -p '#{client_pid} #{client_tty}' 2>/dev/null)
+    environ="/proc/${client%% *}/environ"
+    if [ -n "$client" ] && [ -r "$environ" ]; then
+        tty=
+        tr '\000' '\n' < "$environ" | grep -q '^SSH_TTY=' && tty=${client#* }
+    fi
+fi
+[ -n "$tty" ] && [ -w "$tty" ] || exit 0
 
 # Control characters would end the escape sequence early, Longterm cuts what is too long
 clean() { printf '%s' "$1" | tr '\n\t' '  ' | tr -d '\000-\037\177' | cut -c1-1000; }
 
 case "$1" in
-    working|waiting|done) printf '\033]777;longterm-status;%s;%s\007' "$1" "$(clean "$2")" >> "$SSH_TTY" ;;
-    clear) printf '\033]777;longterm-status;none\007' >> "$SSH_TTY" ;;
+    working|waiting|done) printf '\033]777;longterm-status;%s;%s\007' "$1" "$(clean "$2")" >> "$tty" ;;
+    clear) printf '\033]777;longterm-status;none\007' >> "$tty" ;;
     # The title ends at the first semicolon, the body may have them
-    notify) printf '\033]777;notify;%s;%s\007' "$(clean "$2" | tr -d ';')" "$(clean "$3")" >> "$SSH_TTY" ;;
+    notify) printf '\033]777;notify;%s;%s\007' "$(clean "$2" | tr -d ';')" "$(clean "$3")" >> "$tty" ;;
     *) echo "usage: longterm-status working|waiting|done [detail] | clear | notify <title> <body>" >&2; exit 1 ;;
 esac
 exit 0

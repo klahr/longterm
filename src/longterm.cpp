@@ -13,6 +13,7 @@
 #include "secretvault.h"
 #include "sessionfilter.h"
 #include "sessionmanager.h"
+#include "sftpbrowser.h"
 #include "sshsession.h"
 #include "terminal.h"
 #include "terminalview.h"
@@ -34,6 +35,8 @@ int main(int argc, char *argv[])
                                            QStringLiteral("Sessions are created by sessionManager"));
     qmlRegisterUncreatableType<Terminal>("rs.r8.longterm", 1, 0, "Terminal",
                                          QStringLiteral("Terminals belong to a session"));
+    qmlRegisterUncreatableType<SftpBrowser>("rs.r8.longterm", 1, 0, "SftpBrowser",
+                                            QStringLiteral("File browsers belong to a session"));
     qmlRegisterType<TerminalView>("rs.r8.longterm", 1, 0, "TerminalView");
     qmlRegisterType<SessionFilter>("rs.r8.longterm", 1, 0, "SessionFilter");
 

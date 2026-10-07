@@ -334,7 +334,10 @@ Page {
                     readonly property string status: {
                         switch (session.state) {
                         case SshSession.Connecting: return session.prompting ? session.promptText : qsTr("Connecting")
-                        case SshSession.Connected: return ""
+                        // mosh keeps the session through the silence, this only says how long it has been
+                        case SshSession.Connected:
+                            return session.silentSeconds > 0
+                                    ? qsTr("No contact with the server for %n seconds", "", session.silentSeconds) : ""
                         default: return session.errorString.length > 0 ? session.errorString : qsTr("Disconnected")
                         }
                     }

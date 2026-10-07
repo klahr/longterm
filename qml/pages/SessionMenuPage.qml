@@ -1,5 +1,6 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
+import Sailfish.Pickers 1.0
 import rs.r8.longterm 1.0
 
 Page {
@@ -14,6 +15,17 @@ Page {
     function switchTo(otherSession) {
         sessionPage.showSession(otherSession)
         pageStack.pop()
+    }
+
+    // Into the shell's folder when it says which one that is, otherwise the home folder
+    Component {
+        id: uploadPickerComponent
+
+        ContentPickerPage {
+            title: qsTr("Upload file")
+            onSelectedContentPropertiesChanged: session.files.upload(selectedContentProperties.filePath,
+                                                                     session.terminal.workingDirectory, false)
+        }
     }
 
     SilicaFlickable {
@@ -57,6 +69,46 @@ Page {
                     anchors.verticalCenter: parent.verticalCenter
                     text: qsTr("Find")
                     color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                }
+            }
+
+            BackgroundItem {
+                enabled: session.filesAvailable
+                onClicked: pageStack.animatorReplace(Qt.resolvedUrl("FilesPage.qml"),
+                                                     { session: page.session, startPath: session.terminal.workingDirectory })
+
+                Label {
+                    x: Theme.horizontalPageMargin
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Files")
+                    color: !parent.enabled ? Theme.secondaryColor
+                                           : parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                }
+            }
+
+            BackgroundItem {
+                enabled: session.filesAvailable
+                onClicked: pageStack.animatorReplace(uploadPickerComponent)
+
+                Label {
+                    x: Theme.horizontalPageMargin
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Upload file")
+                    color: !parent.enabled ? Theme.secondaryColor
+                                           : parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                }
+            }
+
+            BackgroundItem {
+                enabled: session.filesAvailable
+                onClicked: pageStack.animatorReplace(Qt.resolvedUrl("DownloadFileDialog.qml"), { session: page.session })
+
+                Label {
+                    x: Theme.horizontalPageMargin
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Download file")
+                    color: !parent.enabled ? Theme.secondaryColor
+                                           : parent.highlighted ? Theme.highlightColor : Theme.primaryColor
                 }
             }
 

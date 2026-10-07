@@ -41,6 +41,19 @@ public:
         bool forwardAgent;
         // "localPort:host:remotePort" entries
         QStringList localForwards;
+        // "remotePort:host:localPort" entries, the server listens and the phone connects onwards
+        QStringList remoteForwards;
+        // Local ports with a SOCKS proxy that connects out from the server
+        QStringList dynamicForwards;
+        // "NAME=value" entries sent before the shell starts
+        QStringList environment;
+        // Attaches to or creates this tmux session instead of a plain shell, empty for none
+        QString tmuxSession;
+        // Seconds, 0 for the defaults
+        int keepAliveInterval = 0;
+        int connectTimeout = 0;
+        // The terminal goes over mosh, the SSH connection only starts the server
+        bool mosh = false;
         QString systemId;
         QString systemName;
     };
@@ -55,12 +68,13 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     // Creates a host when hostId is empty. An empty password keeps
-    // any remembered one, rememberPassword false forgets it. Returns the id.
+    // any remembered one, rememberPassword false forgets it. options holds
+    // the advanced settings by their names in Host, missing ones are reset.
+    // Returns the id.
     Q_INVOKABLE QString saveHost(const QString &hostId, const QString &name,
                                  const QString &address, int port, const QString &user,
                                  const QString &keyId, const QString &password,
-                                 bool rememberPassword, const QString &jumpHostId,
-                                 bool forwardAgent, const QStringList &localForwards);
+                                 bool rememberPassword, const QVariantMap &options);
     Q_INVOKABLE void removeHost(const QString &hostId);
     // Keeps a password typed while connecting, the host logs in with it from now on
     void rememberPassword(const QString &hostId, const QString &password);

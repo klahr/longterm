@@ -8,4 +8,4 @@ Name=Longterm
 [X-Sailjail]
 OrganizationName=rs.r8
 ApplicationName=longterm
-Permissions=Internet;Secrets
+Permissions=Internet;Secrets;UserDirs

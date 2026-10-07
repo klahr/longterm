@@ -2,6 +2,8 @@
 
 #include "colorschemes.h"
 
+#include <QUrl>
+
 #include <cstring>
 
 static const int MaxScrollbackLines = 5000;
@@ -46,6 +48,9 @@ Terminal::Terminal(QObject *parent)
     , m_cursorVisible(true)
     , m_altScreen(false)
     , m_mouseMode(VTERM_PROP_MOUSE_NONE)
+    , m_answersQueries(true)
+    , m_writing(false)
+    , m_keepScrolledLines(true)
     , m_clipboardTooLarge(false)
     , m_scrolledLines(0)
     , m_droppedLines(0)
@@ -115,10 +120,15 @@ void Terminal::resize(int rows, int columns)
     emit sizeChanged();
 }
 
-void Terminal::write(const QByteArray &data)
+void Terminal::write(const QByteArray &data, bool keepScrolledLines)
 {
+    // Output while writing answers the server, the rest is typing
+    m_writing = true;
+    m_keepScrolledLines = keepScrolledLines;
     vterm_input_write(m_vterm, data.constData(), data.size());
     vterm_screen_flush_damage(m_screen);
+    m_keepScrolledLines = true;
+    m_writing = false;
 }
 
 void Terminal::sendKey(VTermKey key, VTermModifier modifiers)
@@ -194,7 +204,10 @@ VTermScreenCell Terminal::blankCell() const
 
 void Terminal::onOutput(const char *bytes, size_t length, void *user)
 {
-    emit static_cast<Terminal *>(user)->outputReady(QByteArray(bytes, int(length)));
+    Terminal *terminal = static_cast<Terminal *>(user);
+    if (terminal->m_writing && !terminal->m_answersQueries)
+        return;
+    emit terminal->outputReady(QByteArray(bytes, int(length)));
 }
 
 int Terminal::onDamage(VTermRect, void *user)
@@ -253,6 +266,8 @@ int Terminal::onBell(void *user)
 int Terminal::onPushLine(int columns, const VTermScreenCell *cells, void *user)
 {
     Terminal *terminal = static_cast<Terminal *>(user);
+    if (!terminal->m_keepScrolledLines)
+        return 1;
     QVector<VTermScreenCell> line(columns);
     std::memcpy(line.data(), cells, columns * sizeof(VTermScreenCell));
     terminal->m_scrollback.append(line);
@@ -311,7 +326,7 @@ int Terminal::onSelectionSet(VTermSelectionMask, VTermStringFragment fragment, v
 
 int Terminal::onOsc(int command, VTermStringFragment fragment, void *user)
 {
-    if (command != 9 && command != 777)
+    if (command != 7 && command != 9 && command != 777)
         return 0;
     Terminal *terminal = static_cast<Terminal *>(user);
     if (fragment.initial)
@@ -328,6 +343,16 @@ int Terminal::onOsc(int command, VTermStringFragment fragment, void *user)
 
 void Terminal::notifyFromOsc(int command, const QByteArray &payload)
 {
+    if (command == 7) {
+        // "file://host/path" with the path percent-encoded
+        const QUrl url(QString::fromUtf8(payload.trimmed()));
+        const QString path = url.scheme() == QLatin1String("file") ? url.path() : QString();
+        if (path.startsWith(QLatin1Char('/')) && path != m_workingDirectory) {
+            m_workingDirectory = path;
+            emit workingDirectoryChanged();
+        }
+        return;
+    }
     if (command == 9) {
         // iTerm2 takes the whole payload as the message, ConEmu uses "9;<number>;..." for
         // progress and other commands, which are no notifications
@@ -370,6 +395,14 @@ void Terminal::notifyFromOsc(int command, const QByteArray &payload)
 void Terminal::clearActivity()
 {
     setActivity(QString());
+}
+
+void Terminal::clearWorkingDirectory()
+{
+    if (m_workingDirectory.isEmpty())
+        return;
+    m_workingDirectory.clear();
+    emit workingDirectoryChanged();
 }
 
 void Terminal::setActivity(const QString &activity, const QString &detail)

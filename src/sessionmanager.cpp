@@ -100,8 +100,17 @@ void SessionManager::configure(SshSession *session, const HostStore::Host &host)
         // Asks for the password on connect
         session->clearStoredSecret();
     session->setCanRememberPassword(host.keyId.isEmpty());
-    session->setForwardAgent(host.forwardAgent && !host.keyId.isEmpty());
-    session->setLocalForwards(host.localForwards);
+    SshOptions options;
+    options.forwardAgent = host.forwardAgent && !host.keyId.isEmpty();
+    options.localForwards = host.localForwards;
+    options.remoteForwards = host.remoteForwards;
+    options.dynamicForwards = host.dynamicForwards;
+    options.environment = host.environment;
+    options.tmuxSession = host.tmuxSession;
+    options.keepAliveInterval = host.keepAliveInterval;
+    options.connectTimeout = host.connectTimeout;
+    options.mosh = host.mosh;
+    session->setOptions(options);
     if (!host.systemId.isEmpty())
         session->setSystem(host.systemId, host.systemName);
     HostStore::Host jump;
@@ -153,11 +162,19 @@ void SessionManager::onNetworkChanged()
     if (active == m_activeNetworks)
         return;
     m_activeNetworks = active;
+
+    // mosh goes on from the new network, its server follows wherever the packets come from
+    for (SshSession *session : m_sessions) {
+        if (session->state() == SshSession::Connected && session->usesMosh())
+            session->roam();
+    }
     if (!m_appSettings->autoReconnect())
         return;
 
     const bool online = m_network.isOnline();
     for (SshSession *session : m_sessions) {
+        if (session->usesMosh())
+            continue;
         // A connection from an address the device no longer has is dead,
         // however long TCP would take to notice
         if (session->state() == SshSession::Connected && !session->hasLocalAddress())

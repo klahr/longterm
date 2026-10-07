@@ -15,7 +15,7 @@ TARGET = longterm
 CONFIG += sailfishapp
 DEFINES += APP_VERSION=\\\"$$VERSION\\\"
 QT += network concurrent
-PKGCONFIG += sailfishsecrets
+PKGCONFIG += sailfishsecrets zlib
 
 SOURCES += src/longterm.cpp \
     src/appsettings.cpp \
@@ -23,9 +23,12 @@ SOURCES += src/longterm.cpp \
     src/hoststore.cpp \
     src/keystore.cpp \
     src/knownhosts.cpp \
+    src/moshclient.cpp \
     src/secretvault.cpp \
     src/sessionfilter.cpp \
     src/sessionmanager.cpp \
+    src/sftpbrowser.cpp \
+    src/sftpengine.cpp \
     src/sshagent.cpp \
     src/sshsession.cpp \
     src/terminal.cpp \
@@ -36,9 +39,12 @@ HEADERS += src/appsettings.h \
     src/hoststore.h \
     src/keystore.h \
     src/knownhosts.h \
+    src/moshclient.h \
     src/secretvault.h \
     src/sessionfilter.h \
     src/sessionmanager.h \
+    src/sftpbrowser.h \
+    src/sftpengine.h \
     src/sshagent.h \
     src/sshsession.h \
     src/terminal.h \
@@ -83,14 +89,17 @@ vterm_encoding.depends = $$vterm_decdrawing.target $$vterm_uk.target
 QMAKE_EXTRA_TARGETS += vterm_decdrawing vterm_uk vterm_encoding
 
 # libssh is not available on the device, so it is built from 3rdparty/libssh
-# and shipped as a private shared library in /usr/share/$${TARGET}/lib
+# and shipped as a private shared library in /usr/share/$${TARGET}/lib.
+# It needs its server code even here: only that hands channels the server
+# opens, for agent forwarding and remote port forwards, to the client's
+# callbacks.
 LIBSSH_SRC = $$PWD/3rdparty/libssh
 LIBSSH_BUILD = $$OUT_PWD/libssh-build
 
 libssh.target = $$LIBSSH_BUILD/lib/libssh.so
 libssh.commands = cmake -S $$LIBSSH_SRC -B $$LIBSSH_BUILD \
     -DCMAKE_BUILD_TYPE=Release \
-    -DWITH_SERVER=OFF -DWITH_GSSAPI=OFF -DWITH_PCAP=OFF \
+    -DWITH_SERVER=ON -DWITH_GSSAPI=OFF -DWITH_PCAP=OFF \
     -DWITH_EXAMPLES=OFF -DUNIT_TESTING=OFF -DCLIENT_TESTING=OFF \
     -DWITH_DEBUG_CALLTRACE=OFF && \
     cmake --build $$LIBSSH_BUILD --parallel
@@ -104,12 +113,15 @@ knownhosts_libssh.target = knownhosts.o
 knownhosts_libssh.depends = $$libssh.target
 sshagent_libssh.target = sshagent.o
 sshagent_libssh.depends = $$libssh.target
-QMAKE_EXTRA_TARGETS += libssh sshsession_libssh keystore_libssh knownhosts_libssh sshagent_libssh
+sftpengine_libssh.target = sftpengine.o
+sftpengine_libssh.depends = $$libssh.target
+QMAKE_EXTRA_TARGETS += libssh sshsession_libssh keystore_libssh knownhosts_libssh sshagent_libssh sftpengine_libssh
 PRE_TARGETDEPS += $$libssh.target
 
 INCLUDEPATH += $$LIBSSH_SRC/include $$LIBSSH_BUILD/include
 LIBS += -L$$LIBSSH_BUILD/lib -lssh
-# The forwarded agent signs with OpenSSL directly, libssh has no call for it
+# The forwarded agent signs with OpenSSL directly, libssh has no call for it,
+# and mosh encrypts with AES-OCB from it
 PKGCONFIG += libcrypto
 QMAKE_RPATHDIR += /usr/share/$${TARGET}/lib
 
@@ -135,8 +147,10 @@ DISTFILES += qml/longterm.qml \
     qml/cover/CoverPage.qml \
     qml/pages/AboutPage.qml \
     qml/pages/ColorSchemesPage.qml \
+    qml/pages/DownloadFileDialog.qml \
     qml/pages/EditSessionDialog.qml \
     qml/pages/ExportKeyDialog.qml \
+    qml/pages/FilesPage.qml \
     qml/pages/GenerateKeyDialog.qml \
     qml/pages/HostPage.qml \
     qml/pages/ImportHostsDialog.qml \
