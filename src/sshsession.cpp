@@ -650,11 +650,19 @@ private:
             }
             pollfd fds[2] = { { fd, POLLOUT, 0 }, { m_wakePipe[0], POLLIN, 0 } };
             const int connectTimeoutMs = m_config.connectTimeout * 1000;
-            qint64 timeout = qMax<qint64>(0, connectTimeoutMs - elapsed.elapsed());
-            if (address->ai_next)
-                timeout = qMin<qint64>(timeout, qMin(AddressTimeoutMs, connectTimeoutMs / 2));
+            QElapsedTimer addressElapsed;
+            addressElapsed.start();
             socklen_t length = sizeof(error);
-            const int ready = poll(fds, 2, int(timeout));
+            int ready;
+            do {
+                qint64 timeout = qMax<qint64>(0, connectTimeoutMs - elapsed.elapsed());
+                if (address->ai_next)
+                    timeout = qMin<qint64>(timeout, qMax<qint64>(0, qMin(AddressTimeoutMs, connectTimeoutMs / 2)
+                                                                    - addressElapsed.elapsed()));
+                ready = poll(fds, 2, int(timeout));
+                if (ready > 0 && !fds[0].revents)
+                    drainWakePipe();
+            } while (ready > 0 && !fds[0].revents && !m_stop.loadAcquire());
             if (ready == 0)
                 error = ETIMEDOUT;
             if (ready <= 0 || !(fds[0].revents & (POLLOUT | POLLERR | POLLHUP))

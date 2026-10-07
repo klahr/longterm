@@ -188,6 +188,14 @@ Page {
             width: sessionList.width
             height: sessionList.height
 
+            Connections {
+                target: delegateItem.session
+                onShellExited: {
+                    if (sessionList.currentItem === delegateItem && page.status === PageStatus.Active)
+                        pageStack.pop(pageStack.previousPage(page))
+                }
+            }
+
             Rectangle {
                 id: nameBar
 
