@@ -93,7 +93,7 @@ Page {
         source: sessionManager
     }
 
-    // The session is removed when its shell exits, so leave once none are left to show
+    // The session is removed when closed, so leave once none are left to show
     Connections {
         target: visibleSessions
         onCountChanged: {
@@ -214,7 +214,8 @@ Page {
                         truncationMode: TruncationMode.Fade
                         font.pixelSize: Theme.fontSizeExtraSmall
                         color: colorSchemes.foreground(delegateItem.schemeId)
-                        text: session.name.length > 0 ? session.name : session.user + "@" + session.host
+                        text: (session.name.length > 0 ? session.name : session.user + "@" + session.host)
+                              + (session.state === SshSession.Connected ? (session.mosh ? " (mosh)" : " (ssh)") : "")
                     }
                 }
             }

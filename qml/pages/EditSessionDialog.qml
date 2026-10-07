@@ -12,6 +12,9 @@ Dialog {
         session.name = nameField.text.trim()
         session.startupScript = scriptArea.text
         session.colorScheme = colorScheme
+        var tmux = tmuxSwitch.checked ? tmuxField.text.trim() : ""
+        session.ownTmux = tmux !== session.hostTmuxSession
+        session.tmuxSession = session.ownTmux ? tmux : ""
     }
 
     SilicaFlickable {
@@ -50,6 +53,29 @@ Dialog {
                                                 { forSession: true, currentScheme: dialog.colorScheme })
                     picker.schemePicked.connect(function(schemeId) { dialog.colorScheme = schemeId })
                 }
+            }
+
+            TextSwitch {
+                id: tmuxSwitch
+                text: qsTr("Attach to tmux")
+                description: qsTr("Opens this tmux session instead of a plain shell, from the next connect. "
+                                  + "Left as the host has it, it follows the host.")
+                checked: (session.ownTmux ? session.tmuxSession : session.hostTmuxSession).length > 0
+            }
+
+            TextField {
+                id: tmuxField
+                width: parent.width
+                visible: tmuxSwitch.checked
+                label: qsTr("tmux session")
+                placeholderText: label
+                text: {
+                    var name = session.ownTmux ? session.tmuxSession : session.hostTmuxSession
+                    return name.length > 0 ? name : "main"
+                }
+                inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
+                EnterKey.iconSource: "image://theme/icon-m-enter-close"
+                EnterKey.onClicked: focus = false
             }
 
             TextArea {

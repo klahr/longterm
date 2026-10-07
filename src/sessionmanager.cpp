@@ -345,9 +345,10 @@ SshSession *SessionManager::addSession(const QString &name, const QString &host,
     });
     // Returned to QML from an invokable, which would otherwise hand ownership to JS
     QQmlEngine::setObjectOwnership(session, QQmlEngine::CppOwnership);
-    connect(session, &SshSession::shellExited, this, [this, session]() { closeSession(session); });
+    connect(session, &SshSession::shellExited, session, &SshSession::forgetMosh);
     connect(session, &SshSession::nameChanged, this, &SessionManager::save);
     connect(session, &SshSession::startupScriptChanged, this, &SessionManager::save);
+    connect(session, &SshSession::tmuxChanged, this, &SessionManager::save);
     connect(session, &SshSession::passwordRemembered, this, [this, session](const QString &password) {
         rememberPassword(session, password);
     });
@@ -455,6 +456,8 @@ void SessionManager::load()
             m_sessions.last()->setSessionId(id);
         m_sessions.last()->setStartupScript(m_settings.value(QStringLiteral("startupScript")).toString());
         m_sessions.last()->setColorScheme(m_settings.value(QStringLiteral("colorScheme")).toString());
+        m_sessions.last()->setOwnTmux(m_settings.value(QStringLiteral("ownTmux")).toBool());
+        m_sessions.last()->setTmuxSession(m_settings.value(QStringLiteral("tmuxSession")).toString());
     }
     m_settings.endArray();
     m_loading = false;
@@ -496,6 +499,8 @@ void SessionManager::save()
         m_settings.setValue(QStringLiteral("user"), session->user());
         m_settings.setValue(QStringLiteral("startupScript"), session->startupScript());
         m_settings.setValue(QStringLiteral("colorScheme"), session->colorScheme());
+        m_settings.setValue(QStringLiteral("ownTmux"), session->ownTmux());
+        m_settings.setValue(QStringLiteral("tmuxSession"), session->tmuxSession());
         if (origin.hostId.isEmpty()) {
             m_settings.setValue(QStringLiteral("systemId"), session->systemId());
             m_settings.setValue(QStringLiteral("systemName"), session->systemName());

@@ -2167,6 +2167,7 @@ SshSession::SshSession(const QString &name, const QString &host, int port, const
                        QObject *parent)
     : QObject(parent)
     , m_name(name)
+    , m_ownTmux(false)
     , m_host(host)
     , m_port(port)
     , m_user(user)
@@ -2588,7 +2589,7 @@ void SshSession::startWorker(const SshCredentials &credentials, const SshCredent
     config.knownHostsPath = QFile::encodeName(knownHostsPath());
     config.connectTimeout = m_options.connectTimeout > 0 ? m_options.connectTimeout : DefaultConnectTimeout;
     config.keepAliveInterval = m_options.keepAliveInterval > 0 ? m_options.keepAliveInterval : DefaultKeepAliveInterval;
-    config.tmuxSession = m_options.tmuxSession.toUtf8();
+    config.tmuxSession = (m_ownTmux ? m_tmuxSession : m_options.tmuxSession).toUtf8();
     config.moshServer = m_options.moshServer.toUtf8();
     config.command = m_options.command.toUtf8();
     config.certificate = m_certificate;
@@ -2900,6 +2901,30 @@ void SshSession::setColorScheme(const QString &colorScheme)
     emit colorSchemeChanged();
 }
 
+void SshSession::setOwnTmux(bool ownTmux)
+{
+    if (m_ownTmux == ownTmux)
+        return;
+    m_ownTmux = ownTmux;
+    emit tmuxChanged();
+}
+
+void SshSession::setTmuxSession(const QString &tmuxSession)
+{
+    if (m_tmuxSession == tmuxSession)
+        return;
+    m_tmuxSession = tmuxSession;
+    emit tmuxChanged();
+}
+
+void SshSession::setOptions(const SshOptions &options)
+{
+    const bool tmux = m_options.tmuxSession != options.tmuxSession;
+    m_options = options;
+    if (tmux)
+        emit tmuxChanged();
+}
+
 void SshSession::setState(State state)
 {
     if (m_state == state)
@@ -2916,7 +2941,7 @@ void SshSession::setState(State state)
 
 void SshSession::onShellExited(int status)
 {
-    // A command's output stays on screen to read, a shell's session goes
+    // A command's output stays on screen to read, a shell's session just disconnects
     if (m_options.command.isEmpty()) {
         emit shellExited();
         return;

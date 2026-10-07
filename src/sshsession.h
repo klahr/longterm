@@ -50,6 +50,9 @@ class SshSession : public QObject
     Q_PROPERTY(QString startupScript READ startupScript WRITE setStartupScript NOTIFY startupScriptChanged)
     // Empty follows the app's color scheme
     Q_PROPERTY(QString colorScheme READ colorScheme WRITE setColorScheme NOTIFY colorSchemeChanged)
+    Q_PROPERTY(bool ownTmux READ ownTmux WRITE setOwnTmux NOTIFY tmuxChanged)
+    Q_PROPERTY(QString tmuxSession READ tmuxSession WRITE setTmuxSession NOTIFY tmuxChanged)
+    Q_PROPERTY(QString hostTmuxSession READ hostTmuxSession NOTIFY tmuxChanged)
     Q_PROPERTY(QString host READ host NOTIFY endpointChanged)
     Q_PROPERTY(int port READ port NOTIFY endpointChanged)
     Q_PROPERTY(QString user READ user NOTIFY endpointChanged)
@@ -107,6 +110,11 @@ public:
     void setStartupScript(const QString &script);
     QString colorScheme() const { return m_colorScheme; }
     void setColorScheme(const QString &colorScheme);
+    bool ownTmux() const { return m_ownTmux; }
+    void setOwnTmux(bool ownTmux);
+    QString tmuxSession() const { return m_tmuxSession; }
+    void setTmuxSession(const QString &tmuxSession);
+    QString hostTmuxSession() const { return m_options.tmuxSession; }
     QString host() const { return m_host; }
     int port() const { return m_port; }
     QString user() const { return m_user; }
@@ -155,7 +163,7 @@ public:
     // Takes effect on the next connect, a live connection keeps its own
     void setEndpoint(const QString &host, int port, const QString &user);
     // Takes effect on the next connect
-    void setOptions(const SshOptions &options) { m_options = options; }
+    void setOptions(const SshOptions &options);
     const SshOptions &options() const { return m_options; }
     // An OpenSSH certificate for the session's key, "type base64 comment"
     void setCertificate(const QByteArray &certificate) { m_certificate = certificate; }
@@ -196,6 +204,7 @@ signals:
     void nameChanged();
     void startupScriptChanged();
     void colorSchemeChanged();
+    void tmuxChanged();
     void stateChanged();
     void errorStringChanged();
     // The remote shell exited normally, as opposed to the connection failing
@@ -275,6 +284,8 @@ private:
     QString m_name;
     QString m_startupScript;
     QString m_colorScheme;
+    bool m_ownTmux;
+    QString m_tmuxSession;
     QString m_host;
     int m_port;
     QString m_user;
