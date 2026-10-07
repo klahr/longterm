@@ -42,6 +42,10 @@
 #include "sshagent.h"
 #include "terminal.h"
 
+// libssh keeps the key's struct private, so it goes through signals as an opaque pointer
+Q_DECLARE_OPAQUE_POINTER(ssh_key_struct *)
+Q_DECLARE_METATYPE(SharedSshKey)
+
 // Like OpenSSH's NumberOfPasswordPrompts
 static const int PasswordAttempts = 3;
 
@@ -449,6 +453,8 @@ signals:
     void sftpDone(int id, const QString &error);
     void sftpProgress(int id, qint64 bytes, qint64 total);
     void sftpTransferred(int id, const QString &localPath, const QString &error);
+    // An encrypted key was decrypted with its passphrase, for later connections to reuse
+    void keyUnlocked(const SharedSshKey &key, bool jump);
 
 protected:
     void run() override
@@ -529,6 +535,7 @@ private:
     {
         credentials->password.fill('\0');
         credentials->privateKey.fill('\0');
+        credentials->unlockedKey.reset();
     }
 
     static QString knownHostsPattern(const QByteArray &host, int port)
@@ -1204,6 +1211,16 @@ private:
         *keyOut = nullptr;
         if (credentials->privateKey.isEmpty())
             return true;
+        // Typed before, a reconnect must not wait for someone to type it again
+        if (credentials->unlockedKey) {
+            ssh_key key = ssh_key_dup(credentials->unlockedKey.data());
+            credentials->unlockedKey.reset();
+            if (key) {
+                credentials->privateKey.fill('\0');
+                *keyOut = key;
+                return true;
+            }
+        }
         ssh_key key = nullptr;
         int rc = ssh_pki_import_privkey_base64(credentials->privateKey.constData(), nullptr, nullptr, nullptr, &key);
         // Kept encrypted, so its passphrase is asked for on every connect
@@ -1235,6 +1252,10 @@ private:
         if (rc != SSH_OK) {
             report(encrypted ? tr("Wrong key passphrase") : tr("Could not load private key"), false, jump);
             return false;
+        }
+        if (encrypted) {
+            if (ssh_key copy = ssh_key_dup(key))
+                emit keyUnlocked(SharedSshKey(copy, ssh_key_free), jump);
         }
         *keyOut = key;
         return true;
@@ -2204,6 +2225,7 @@ SshSession::SshSession(const QString &name, const QString &host, int port, const
     , m_typedEscape(0)
     , m_typedPaste(false)
 {
+    qRegisterMetaType<SharedSshKey>();
     connect(m_terminal, &Terminal::outputReady, this, &SshSession::onTerminalOutput);
     connect(m_terminal, &Terminal::sizeChanged, this, &SshSession::onTerminalSizeChanged);
     connect(m_terminal, &Terminal::lineScrolled, this, &SshSession::writeLog);
@@ -2286,6 +2308,9 @@ bool SshSession::hasLocalAddress() const
 void SshSession::setJumpHost(const QString &host, int port, const QString &user,
                              SecretVault *vault, const QString &secretId, SecretKind kind)
 {
+    // Hosts are configured again on every change to any of them, only another key forgets it
+    if (!m_hasJump || m_jumpAuth.vault != vault || m_jumpAuth.secretId != secretId || m_jumpAuth.kind != kind)
+        m_unlockedJumpKey.reset();
     m_hasJump = true;
     m_jumpHost = host;
     m_jumpPort = port;
@@ -2302,6 +2327,7 @@ void SshSession::connectToHost(const QString &password)
         return;
     m_auth = AuthSource();
     m_auth.password = password;
+    m_unlockedKey.reset();
     startConnection();
 }
 
@@ -2425,6 +2451,9 @@ void SshSession::dropConnection()
 
 void SshSession::setSecret(SecretVault *vault, const QString &secretId, SecretKind kind)
 {
+    // Hosts are configured again on every change to any of them, only another key forgets it
+    if (m_auth.vault != vault || m_auth.secretId != secretId || m_auth.kind != kind)
+        m_unlockedKey.reset();
     m_auth = AuthSource();
     m_auth.vault = vault;
     m_auth.secretId = secretId;
@@ -2435,6 +2464,7 @@ void SshSession::clearStoredSecret()
 {
     if (m_auth.vault)
         m_auth = AuthSource();
+    m_unlockedKey.reset();
 }
 
 void SshSession::setEndpoint(const QString &host, int port, const QString &user)
@@ -2580,11 +2610,13 @@ void SshSession::startWorker(const SshCredentials &credentials, const SshCredent
     config.port = m_port;
     config.user = m_user.toUtf8();
     config.credentials = credentials;
+    config.credentials.unlockedKey = m_unlockedKey;
     config.hasJump = m_hasJump;
     config.jumpHost = m_jumpHost.toUtf8();
     config.jumpPort = m_jumpPort;
     config.jumpUser = m_jumpUser.toUtf8();
     config.jumpCredentials = jumpCredentials;
+    config.jumpCredentials.unlockedKey = m_unlockedJumpKey;
     config.forwardAgent = m_options.forwardAgent;
     config.knownHostsPath = QFile::encodeName(knownHostsPath());
     config.connectTimeout = m_options.connectTimeout > 0 ? m_options.connectTimeout : DefaultConnectTimeout;
@@ -2670,6 +2702,7 @@ void SshSession::startWorker(const SshCredentials &credentials, const SshCredent
     });
     connect(m_worker, &SshWorker::moshGone, this, [this]() { m_connectAfterWorker = true; });
     connect(m_worker, &SshWorker::moshEcho, this, &SshSession::onMoshEcho);
+    connect(m_worker, &SshWorker::keyUnlocked, this, &SshSession::onKeyUnlocked);
     m_typedBytes = 0;
     clearPredictions(false);
     m_resuming = !config.resumeKey.isEmpty();
@@ -2697,6 +2730,9 @@ void SshSession::startWorker(const SshCredentials &credentials, const SshCredent
 void SshSession::disconnectFromHost()
 {
     m_lost = false;
+    // Ended on purpose, the next connect asks for the passphrase again
+    m_unlockedKey.reset();
+    m_unlockedJumpKey.reset();
     // Ending the session ends its mosh session too, nothing is left to resume
     if (m_moshVault && !m_sessionId.isEmpty())
         m_moshVault->remove(QStringLiteral("mosh") + m_sessionId, this, [](const QString &) {});
@@ -2843,6 +2879,17 @@ void SshSession::onWorkerSystem(const QString &id, const QString &name, bool cer
     if (!certain && !m_systemId.isEmpty())
         return;
     setSystem(id, name);
+}
+
+void SshSession::onKeyUnlocked(const SharedSshKey &key, bool jump)
+{
+    // Not from a worker that was already replaced
+    if (!m_worker || sender() != m_worker)
+        return;
+    if (jump)
+        m_unlockedJumpKey = key;
+    else
+        m_unlockedKey = key;
 }
 
 void SshSession::onWorkerPrompt(const QString &text, bool echo, bool canRemember, const QString &label)

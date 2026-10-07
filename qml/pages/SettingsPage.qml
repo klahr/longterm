@@ -169,7 +169,7 @@ Page {
                 checked: appSettings.lockEnabled
                 onClicked: {
                     if (checked)
-                        appSettings.setLockCode("")
+                        pageStack.animatorPush(Qt.resolvedUrl("RemoveLockDialog.qml"))
                     else
                         pageStack.animatorPush(Qt.resolvedUrl("LockCodeDialog.qml"))
                 }

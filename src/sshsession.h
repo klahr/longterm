@@ -5,6 +5,7 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QObject>
+#include <QSharedPointer>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
@@ -17,10 +18,16 @@
 class SecretVault;
 class SftpBrowser;
 class SshWorker;
+struct ssh_key_struct;
+
+// A private key already decrypted, shared between the workers of a session
+typedef QSharedPointer<ssh_key_struct> SharedSshKey;
 
 struct SshCredentials {
     QByteArray password;
     QByteArray privateKey;
+    // The privateKey decrypted with its passphrase earlier, so it is not asked for again
+    SharedSshKey unlockedKey;
 };
 
 // How a saved host connects, see HostStore::Host
@@ -256,6 +263,7 @@ private:
     };
 
     void setState(State state);
+    void onKeyUnlocked(const SharedSshKey &key, bool jump);
     void startConnection();
     // side fetches quietly for the extra SSH connection under mosh
     void fetchCredentials(const AuthSource &source, const std::function<void(const SshCredentials &)> &done,
@@ -315,6 +323,10 @@ private:
     int m_jumpPort;
     QString m_jumpUser;
     AuthSource m_jumpAuth;
+    // Keys whose passphrase was typed, kept until the session is disconnected so
+    // reconnects and the SSH connection under mosh log in without asking again
+    SharedSshKey m_unlockedKey;
+    SharedSshKey m_unlockedJumpKey;
     SshOptions m_options;
     QByteArray m_certificate;
     bool m_usesMosh;

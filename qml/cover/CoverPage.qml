@@ -14,7 +14,7 @@ CoverBackground {
     Column {
         anchors.centerIn: parent
         width: parent.width - 2 * Theme.paddingLarge
-        visible: sessionManager.count === 0 || appSettings.locked
+        visible: sessionManager.count === 0
         spacing: Theme.paddingSmall
 
         Label {
@@ -27,7 +27,7 @@ CoverBackground {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
-            text: appSettings.locked ? qsTr("Locked") : qsTr("No connections")
+            text: qsTr("No connections")
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.secondaryColor
         }
@@ -37,7 +37,7 @@ CoverBackground {
         x: Theme.paddingLarge
         y: Theme.paddingLarge
         width: parent.width - 2 * Theme.paddingLarge
-        visible: sessionManager.count > 0 && !appSettings.locked
+        visible: sessionManager.count > 0
         spacing: Theme.paddingMedium
 
         Label {

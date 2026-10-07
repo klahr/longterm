@@ -180,6 +180,7 @@ DISTFILES += qml/longterm.qml \
     qml/pages/LicensePage.qml \
     qml/pages/LockCodeDialog.qml \
     qml/pages/LockPage.qml \
+    qml/pages/RemoveLockDialog.qml \
     qml/pages/RestoreDialog.qml \
     qml/pages/SessionMenuPage.qml \
     qml/pages/SessionPage.qml \
