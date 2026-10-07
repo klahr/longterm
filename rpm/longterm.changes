@@ -1,3 +1,39 @@
+* Wed Oct 07 2026 Joachim Klahr <klahr@r8.rs> 0.5.0-1
+- mosh, which keeps the session through network changes, sleep and dead
+  spots and through a restart of the app, with typing shown before the
+  server echoes it on slow links
+- Files on the server: browse, download, open, upload, rename and delete
+  files and folders, also straight from the session menu, and upload
+  files shared from other apps
+- Coding agents such as Claude Code and Codex show what they are doing in
+  the session and notify on questions and finished turns, with buttons to
+  allow or refuse permission requests, through a plugin for the server
+- Programs can send notifications with OSC 9 or OSC 777
+- Snippets of commands typed with one tap, per host or for all, and the
+  history of what was typed in the session
+- Hardware keyboard shortcuts: Alt and Meta, Ctrl with symbols,
+  Ctrl+Shift+C/V, Ctrl+Tab and Ctrl+PgUp/PgDn between connections and
+  Ctrl+Shift+T for a new one
+- Key toolbar above the keyboard or at the top, Ctrl and Alt lock when
+  tapped twice, drag the arrows key to move the cursor
+- Any monospace font on the device, with Nerd Fonts symbols, and color
+  schemes imported from iTerm2, Alacritty, Windows Terminal, Xresources
+  or base16
+- Save or share the scrollback, log sessions to Documents/Longterm, and
+  select text from the screen in a window of its own
+- Certificate login, remote port forwards, a SOCKS proxy, environment
+  variables, keepalive and connect timeouts, Wake-on-LAN and attaching to
+  a tmux session, per host or per connection
+- Hosts in groups and favorites, most recent first, with search
+- Install keys on a host from the app, like ssh-copy-id
+- Back up everything into one file encrypted with a passphrase, and
+  restore from it
+- Lock the app with a code, and show host key fingerprints as QR codes
+- Key passphrases are asked for before connecting, so a slow answer no
+  longer times out the login, and are not asked again on reconnects
+- Typing exit goes back to the connections
+- Fix swiping when all connections are disconnected
+
 * Fri Oct 02 2026 Joachim Klahr <klahr@r8.rs> 0.4.0-1
 - Fix shell output lost or replaced by old lines when the keyboard opens
   or closes, also while a full-screen program like vim or htop is shown
