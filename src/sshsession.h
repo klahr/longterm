@@ -2,9 +2,12 @@
 #define SSHSESSION_H
 
 #include <QByteArray>
+#include <QElapsedTimer>
+#include <QFile>
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QTimer>
 
 #include "sftpengine.h"
 #include "terminal.h"
@@ -31,6 +34,12 @@ struct SshOptions {
     int keepAliveInterval = 0;
     int connectTimeout = 0;
     bool mosh = false;
+    // Empty for mosh-server on the PATH
+    QString moshServer;
+    // Writes what scrolls off the terminal to a file in Documents
+    bool logging = false;
+    // Runs this instead of a shell, its output stays to read once it ends
+    QString command;
 };
 
 class SshSession : public QObject
@@ -65,6 +74,15 @@ class SshSession : public QObject
     // Files and transfers need the SSH connection, which under mosh can close while the terminal goes on
     Q_PROPERTY(bool filesAvailable READ filesAvailable NOTIFY filesAvailableChanged)
     Q_PROPERTY(SftpBrowser *files READ files CONSTANT)
+    // The saved host it belongs to, empty for a one-off connection
+    Q_PROPERTY(QString hostId READ hostId CONSTANT)
+    // Lines typed into the shell, the newest last. Only those that showed on
+    // screen, so passwords typed without echo stay out.
+    Q_PROPERTY(QStringList history READ history NOTIFY historyChanged)
+    // A message to show for a moment, under mosh where the terminal cannot take it
+    Q_PROPERTY(QString notice READ notice NOTIFY noticeChanged)
+    // Where the session log goes, empty when not logging
+    Q_PROPERTY(QString logPath READ logPath NOTIFY logPathChanged)
 
 public:
     enum State {
@@ -106,8 +124,22 @@ public:
     void setSystem(const QString &id, const QString &name);
     bool usesMosh() const { return m_usesMosh; }
     int silentSeconds() const { return m_silentSeconds; }
-    bool filesAvailable() const { return m_state == Connected && m_sshUp; }
+    bool filesAvailable() const { return m_state == Connected && (m_sshUp || m_sideUp); }
     SftpBrowser *files() const { return m_files; }
+    QString hostId() const { return m_hostId; }
+    // Names what the session keeps between starts of the app, such as a mosh session to resume
+    QString sessionId() const { return m_sessionId; }
+    void setSessionId(const QString &id) { m_sessionId = id; }
+    // Where the keys of mosh sessions to resume are kept
+    void setMoshVault(SecretVault *vault) { m_moshVault = vault; }
+    // A mosh session left running when the app went, which connecting picks up
+    bool canResume() const;
+    // Ends what is kept for resuming, for a session that goes away
+    void forgetMosh();
+    void setHostId(const QString &hostId) { m_hostId = hostId; }
+    QString logPath() const { return m_logPath; }
+    QString notice() const { return m_notice; }
+    QStringList history() const { return m_history; }
     bool promptCanRemember() const { return m_promptCanRemember && m_canRememberPassword && m_auth.kind == Password; }
     // Set for sessions of a saved host, which has somewhere to keep the password
     void setCanRememberPassword(bool canRemember) { m_canRememberPassword = canRemember; }
@@ -124,6 +156,9 @@ public:
     void setEndpoint(const QString &host, int port, const QString &user);
     // Takes effect on the next connect
     void setOptions(const SshOptions &options) { m_options = options; }
+    const SshOptions &options() const { return m_options; }
+    // An OpenSSH certificate for the session's key, "type base64 comment"
+    void setCertificate(const QByteArray &certificate) { m_certificate = certificate; }
 
     static QString knownHostsPath();
 
@@ -146,6 +181,16 @@ public:
     void roam();
     // False when there is no connection to send it over
     bool sendSftp(const SftpRequest &request);
+    // Shows typing over mosh before the server echoes it
+    void setPredictionEnabled(bool enabled) { m_predictionEnabled = enabled; }
+    // Shows it from this round trip on, quicker links echo before anyone could tell. Tests use 0.
+    void setPredictionMinRoundTrip(int milliseconds) { m_predictionMinRoundTrip = milliseconds; }
+    // Types the text into the session, as an answer from a notification
+    Q_INVOKABLE void sendInput(const QString &text);
+    // The scrollback and the screen as plain text
+    Q_INVOKABLE QString scrollbackText() const;
+    // Into the Downloads folder, returns the file or an empty string with errorString set
+    Q_INVOKABLE QString saveScrollback();
 
 signals:
     void nameChanged();
@@ -155,6 +200,8 @@ signals:
     void errorStringChanged();
     // The remote shell exited normally, as opposed to the connection failing
     void shellExited();
+    // The command of SshOptions::command ended, status is -1 when not known
+    void commandFinished(int status);
     void hostKeyMismatchChanged();
     void promptChanged();
     void systemChanged();
@@ -162,6 +209,9 @@ signals:
     void moshChanged();
     void silentSecondsChanged();
     void filesAvailableChanged();
+    void logPathChanged();
+    void noticeChanged();
+    void historyChanged();
     // The user asked to save the password they typed
     void passwordRemembered(const QString &password);
     // An established connection dropped for network reasons and has wound down
@@ -178,10 +228,14 @@ private slots:
     void onWorkerFinished();
     void onTerminalOutput(const QByteArray &data);
     void onTerminalSizeChanged();
+    void onShellExited(int status);
     void onMoshStarted();
-    void onMoshData(const QByteArray &data, bool replace);
+    void onMoshData(const QByteArray &screen, const QByteArray &data, int skipLines);
     void onMoshSilence(int seconds);
     void onSshClosed();
+    void onStatusLine(const QByteArray &line);
+    void onSideWorkerFinished();
+    void onMoshEcho(qint64 echoedBytes, int roundTrip);
 
 private:
     // Where the secrets for a login come from
@@ -194,13 +248,29 @@ private:
 
     void setState(State state);
     void startConnection();
-    void fetchCredentials(const AuthSource &source, const std::function<void(const SshCredentials &)> &done);
-    void startWorker(const SshCredentials &credentials, const SshCredentials &jumpCredentials);
+    // side fetches quietly for the extra SSH connection under mosh
+    void fetchCredentials(const AuthSource &source, const std::function<void(const SshCredentials &)> &done,
+                          bool side = false);
+    // side starts the SSH connection for files and forwards under mosh, after its own dropped
+    void startWorker(const SshCredentials &credentials, const SshCredentials &jumpCredentials, bool side = false);
+    void startSideWorker();
+    void stopSideWorker();
+    void setSideUp(bool up);
+    void setNotice(const QString &notice);
     void setPrompt(bool prompting, const QString &text, bool echo, bool canRemember, const QString &label);
-    void stopWorker();
+    // keepMosh leaves a mosh session on the server to resume after a restart
+    void stopWorker(bool keepMosh = false);
+    QString journalPath() const;
     void setUsesMosh(bool usesMosh);
     void setSilentSeconds(int seconds);
     void setSshUp(bool up);
+    void startLog();
+    void finishLog();
+    void writeLog(const QString &line);
+    void trackTyping(const QByteArray &data);
+    void predict(const QByteArray &data);
+    void showPredictions();
+    void clearPredictions(bool trusted);
 
     QString m_name;
     QString m_startupScript;
@@ -235,10 +305,50 @@ private:
     QString m_jumpUser;
     AuthSource m_jumpAuth;
     SshOptions m_options;
+    QByteArray m_certificate;
     bool m_usesMosh;
     int m_silentSeconds;
     bool m_sshUp;
     SftpBrowser *m_files;
+    SshWorker *m_sideWorker;
+    bool m_sideFetchPending;
+    bool m_sideUp;
+    QTimer m_sideRetry;
+    QByteArray m_statusFile;
+    QString m_notice;
+    QTimer m_noticeTimer;
+    QString m_hostId;
+    QString m_sessionId;
+    SecretVault *m_moshVault;
+    QByteArray m_resumeKey;
+    // The connection picks up a mosh session rather than logging in
+    bool m_resuming;
+    // The mosh session to resume was gone, so a new connection follows
+    bool m_connectAfterWorker;
+    QString m_logPath;
+    QFile *m_log;
+    QStringList m_history;
+    // Typing shown ahead of the mosh server, each part with the typed bytes up to its end
+    struct Prediction {
+        QString text;
+        int row;
+        int column;
+        qint64 endBytes;
+    };
+    QList<Prediction> m_predictions;
+    qint64 m_typedBytes;
+    bool m_predictionTrusted;
+    bool m_predictionEnabled;
+    int m_roundTrip;
+    int m_predictionMinRoundTrip;
+    QElapsedTimer m_predictionAge;
+    // The line being typed, unknown once editing keys moved around in it
+    QByteArray m_typed;
+    bool m_typedUnknown;
+    // Inside an escape sequence the terminal sent, 0 when not, 2 inside CSI
+    int m_typedEscape;
+    bool m_typedPaste;
+    QByteArray m_typedParameters;
 };
 
 #endif // SSHSESSION_H

@@ -6,6 +6,7 @@
 #include <QList>
 #include <QObject>
 #include <QString>
+#include <QVariantList>
 #include <QVector>
 
 #include <vterm.h>
@@ -53,11 +54,21 @@ public:
     QColor color(VTermColor color) const;
 
     void resize(int rows, int columns);
-    // Lines scrolled off the top go to the scrollback unless keepScrolledLines is false
-    void write(const QByteArray &data, bool keepScrolledLines = true);
+    // Lines scrolled off the top go to the scrollback unless keepScrolledLines
+    // is false, all but the first skipScrolledLines
+    void write(const QByteArray &data, bool keepScrolledLines = true, int skipScrolledLines = 0);
     // Off when something in between, such as mosh-server, answers the program's
     // questions about the terminal itself
     void setAnswersQueries(bool answers) { m_answersQueries = answers; }
+    // lineScrolled() is only worth its cost when something listens
+    void setReportScrolledLines(bool report) { m_reportScrolledLines = report; }
+    // Typed text shown ahead of the server's echo, from row and column on. A row below zero shows none.
+    void setPrediction(int row, int column, const QString &text);
+    int predictionRow() const { return m_predictionRow; }
+    int predictionColumn() const { return m_predictionColumn; }
+    QString prediction() const { return m_prediction; }
+    // A line as text without trailing blanks, rows below zero address the scrollback
+    QString text(int row) const;
     void sendKey(VTermKey key, VTermModifier modifiers);
     void sendChar(uint ucs4, VTermModifier modifiers);
     void sendWheel(bool up, int row, int column);
@@ -69,6 +80,8 @@ signals:
     void titleChanged();
     void activityChanged();
     void workingDirectoryChanged();
+    // A line went into the scrollback, see setReportScrolledLines()
+    void lineScrolled(const QString &text);
     void contentChanged();
     void outputReady(const QByteArray &data);
     void bell();
@@ -76,6 +89,9 @@ signals:
     void clipboardRequested(const QString &text);
     // A program asked for a desktop notification with OSC 9 or OSC 777, title may be empty
     void notificationRequested(const QString &title, const QString &body);
+    // Like a notification with buttons that answer it, see OSC 777 longterm-ask.
+    // Each reply is a map with label and keys, the bytes to type.
+    void questionAsked(const QString &title, const QString &body, const QVariantList &replies);
 
 private:
     static void onOutput(const char *bytes, size_t length, void *user);
@@ -88,7 +104,12 @@ private:
     static int onClearScrollback(void *user);
     static int onSelectionSet(VTermSelectionMask mask, VTermStringFragment fragment, void *user);
     static int onOsc(int command, VTermStringFragment fragment, void *user);
+public:
+    // What OSC 9 and OSC 777 carry, also when it comes another way, such as
+    // the status file under mosh
     void notifyFromOsc(int command, const QByteArray &payload);
+
+private:
     void setActivity(const QString &activity, const QString &detail = QString());
 
     static const VTermScreenCallbacks s_screenCallbacks;
@@ -110,6 +131,11 @@ private:
     bool m_answersQueries;
     bool m_writing;
     bool m_keepScrolledLines;
+    int m_skipScrolledLines;
+    bool m_reportScrolledLines;
+    int m_predictionRow;
+    int m_predictionColumn;
+    QString m_prediction;
     QByteArray m_pendingTitle;
     QByteArray m_pendingClipboard;
     // libvterm decodes OSC 52 into this, it would leak a buffer of its own

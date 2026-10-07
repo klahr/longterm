@@ -26,6 +26,13 @@ Page {
         anchors.fill: parent
         model: colorSchemes
 
+        PullDownMenu {
+            MenuItem {
+                text: qsTr("Import scheme")
+                onClicked: pageStack.animatorPush(Qt.resolvedUrl("ImportSchemeDialog.qml"))
+            }
+        }
+
         header: Column {
             width: page.width
 
@@ -72,6 +79,22 @@ Page {
 
             contentHeight: preview.height + nameLabel.height + 3 * Theme.paddingMedium
             onClicked: page.pick(model.schemeId)
+            menu: model.custom ? removeMenu : null
+
+            Component {
+                id: removeMenu
+
+                ContextMenu {
+                    MenuItem {
+                        text: qsTr("Delete")
+                        onClicked: {
+                            var schemes = colorSchemes
+                            var id = model.schemeId
+                            delegate.remorseDelete(function() { schemes.removeScheme(id) })
+                        }
+                    }
+                }
+            }
 
             Label {
                 id: nameLabel

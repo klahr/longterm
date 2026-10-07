@@ -1,6 +1,7 @@
 import QtQuick 2.0
 import Sailfish.Silica 1.0
 import Sailfish.Pickers 1.0
+import Sailfish.Share 1.0
 import rs.r8.longterm 1.0
 
 Page {
@@ -9,12 +10,19 @@ Page {
     property var session
     property Item sessionPage
     property Item terminalView
+    property string scrollbackMessage
 
     allowedOrientations: Orientation.All
 
     function switchTo(otherSession) {
         sessionPage.showSession(otherSession)
         pageStack.pop()
+    }
+
+    ShareAction {
+        id: shareAction
+        mimeType: "text/plain"
+        title: qsTr("Share scrollback")
     }
 
     // Into the shell's folder when it says which one that is, otherwise the home folder
@@ -70,6 +78,70 @@ Page {
                     text: qsTr("Find")
                     color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
                 }
+            }
+
+            BackgroundItem {
+                onClicked: pageStack.animatorReplace(Qt.resolvedUrl("SnippetPickerPage.qml"),
+                                                     { session: page.session, terminalView: page.terminalView })
+
+                Label {
+                    x: Theme.horizontalPageMargin
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Snippets")
+                    color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                }
+            }
+
+            BackgroundItem {
+                onClicked: pageStack.animatorReplace(Qt.resolvedUrl("HistoryPage.qml"),
+                                                     { session: page.session, terminalView: page.terminalView })
+
+                Label {
+                    x: Theme.horizontalPageMargin
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("History")
+                    color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                }
+            }
+
+            BackgroundItem {
+                onClicked: {
+                    var path = page.session.saveScrollback()
+                    page.scrollbackMessage = path.length > 0 ? qsTr("Saved to %1").arg(path) : page.session.errorString
+                }
+
+                Label {
+                    x: Theme.horizontalPageMargin
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Save scrollback")
+                    color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                }
+            }
+
+            BackgroundItem {
+                onClicked: {
+                    var name = (session.name.length > 0 ? session.name : session.host).replace(/[\/:*?"<>|]/g, "_")
+                    shareAction.resources = [ { "name": name + ".txt", "data": page.session.scrollbackText(),
+                                                "type": "text/plain" } ]
+                    shareAction.trigger()
+                }
+
+                Label {
+                    x: Theme.horizontalPageMargin
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Share scrollback")
+                    color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                }
+            }
+
+            Label {
+                x: Theme.horizontalPageMargin
+                width: parent.width - 2 * Theme.horizontalPageMargin
+                visible: page.scrollbackMessage.length > 0
+                text: page.scrollbackMessage
+                wrapMode: Text.Wrap
+                font.pixelSize: Theme.fontSizeExtraSmall
+                color: Theme.secondaryHighlightColor
             }
 
             BackgroundItem {

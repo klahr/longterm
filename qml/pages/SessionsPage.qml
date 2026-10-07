@@ -6,6 +6,8 @@ import "../components"
 Page {
     id: page
 
+    property string hostMessage
+
     allowedOrientations: Orientation.All
 
     // Hosts without a key or saved password ask for it in the session
@@ -89,6 +91,13 @@ Page {
             SectionHeader {
                 text: qsTr("Connections")
                 visible: sessionManager.count > 0
+            }
+
+            AgentSummary {
+                x: Theme.horizontalPageMargin
+                width: parent.width - 2 * Theme.horizontalPageMargin
+                horizontalAlignment: Text.AlignRight
+                font.pixelSize: Theme.fontSizeExtraSmall
             }
 
             Repeater {
@@ -200,7 +209,7 @@ Page {
                         preview: true
                         radius: Theme.paddingSmall
                         terminal: sessionItem.session.terminal
-                        fontFamily: terminalFontFamily
+                        fontFamily: appSettings.terminalFontFamily.length > 0 ? appSettings.terminalFontFamily : terminalFontFamily
                         fontPixelSize: appSettings.terminalFontSize > 0 ? appSettings.terminalFontSize : Theme.fontSizeExtraSmall
                         colorScheme: sessionItem.session.colorScheme.length > 0 ? sessionItem.session.colorScheme
                                                                                 : appSettings.terminalColorScheme
@@ -214,60 +223,126 @@ Page {
                 visible: hostStore.count > 0
             }
 
+            SearchField {
+                id: hostSearch
+                width: parent.width
+                // Worth it once the list no longer fits at a glance
+                visible: hostStore.count > 6 || text.length > 0
+                placeholderText: qsTr("Search hosts")
+                inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
+                onTextChanged: hostList.searchText = text
+                EnterKey.iconSource: "image://theme/icon-m-enter-close"
+                EnterKey.onClicked: focus = false
+            }
+
+            Label {
+                x: Theme.horizontalPageMargin
+                visible: hostList.count === 0 && hostSearch.text.length > 0
+                text: qsTr("No matching hosts")
+                color: Theme.secondaryHighlightColor
+            }
+
             Repeater {
-                model: hostStore
+                model: hostList
 
-                ListItem {
-                    id: hostItem
-
+                Column {
                     width: column.width
-                    contentHeight: Theme.itemSizeMedium
-                    menu: Component {
-                        ContextMenu {
-                            MenuItem {
-                                text: qsTr("Edit")
-                                onClicked: pageStack.animatorPush(Qt.resolvedUrl("HostPage.qml"),
-                                                                  { hostId: model.hostId })
-                            }
-                            MenuItem {
-                                text: qsTr("Delete")
-                                onClicked: {
-                                    var store = hostStore
-                                    var hostId = model.hostId
-                                    hostItem.remorseDelete(function() { store.removeHost(hostId) })
+
+                    Label {
+                        x: Theme.horizontalPageMargin
+                        width: parent.width - 2 * Theme.horizontalPageMargin
+                        visible: model.sectionStart && model.section.length > 0
+                        height: visible ? implicitHeight + Theme.paddingMedium : 0
+                        verticalAlignment: Text.AlignBottom
+                        horizontalAlignment: Text.AlignRight
+                        text: model.section
+                        truncationMode: TruncationMode.Fade
+                        font.pixelSize: Theme.fontSizeExtraSmall
+                        color: Theme.secondaryHighlightColor
+                    }
+
+                    ListItem {
+                        id: hostItem
+
+                        width: column.width
+                        contentHeight: Theme.itemSizeMedium
+                        menu: Component {
+                            ContextMenu {
+                                MenuItem {
+                                    text: qsTr("Edit")
+                                    onClicked: pageStack.animatorPush(Qt.resolvedUrl("HostPage.qml"),
+                                                                      { hostId: model.hostId })
+                                }
+                                MenuItem {
+                                    text: model.favorite ? qsTr("Remove from favorites") : qsTr("Add to favorites")
+                                    onClicked: hostStore.setFavorite(model.hostId, !model.favorite)
+                                }
+                                MenuItem {
+                                    text: qsTr("Duplicate")
+                                    onClicked: {
+                                        var id = hostStore.duplicateHost(model.hostId)
+                                        if (id.length > 0)
+                                            pageStack.animatorPush(Qt.resolvedUrl("HostPage.qml"), { hostId: id })
+                                    }
+                                }
+                                MenuItem {
+                                    visible: model.macAddress.length > 0
+                                    text: qsTr("Wake up")
+                                    onClicked: {
+                                        var error = sessionManager.wakeHost(model.hostId)
+                                        page.hostMessage = error.length > 0 ? error : qsTr("Sent a wake-up packet to %1").arg(model.name)
+                                    }
+                                }
+                                MenuItem {
+                                    text: qsTr("Delete")
+                                    onClicked: {
+                                        var store = hostStore
+                                        var hostId = model.hostId
+                                        hostItem.remorseDelete(function() { store.removeHost(hostId) })
+                                    }
                                 }
                             }
                         }
-                    }
-                    onClicked: page.connectToHost(model.hostId)
+                        onClicked: page.connectToHost(model.hostId)
 
-                    SystemIcon {
-                        id: hostIcon
-                        x: Theme.horizontalPageMargin
-                        anchors.verticalCenter: parent.verticalCenter
-                        systemId: model.systemId
-                    }
-
-                    Column {
-                        anchors.verticalCenter: parent.verticalCenter
-                        x: hostIcon.x + hostIcon.width + Theme.paddingMedium
-                        width: parent.width - x - Theme.horizontalPageMargin
-
-                        Label {
-                            width: parent.width
-                            text: model.name
-                            truncationMode: TruncationMode.Fade
-                            color: hostItem.highlighted ? Theme.highlightColor : Theme.primaryColor
+                        SystemIcon {
+                            id: hostIcon
+                            x: Theme.horizontalPageMargin
+                            anchors.verticalCenter: parent.verticalCenter
+                            systemId: model.systemId
                         }
-                        Label {
-                            width: parent.width
-                            text: model.user + "@" + model.address + (model.port !== 22 ? ":" + model.port : "")
-                            truncationMode: TruncationMode.Fade
-                            font.pixelSize: Theme.fontSizeExtraSmall
-                            color: hostItem.highlighted ? Theme.secondaryHighlightColor : Theme.secondaryColor
+
+                        Column {
+                            anchors.verticalCenter: parent.verticalCenter
+                            x: hostIcon.x + hostIcon.width + Theme.paddingMedium
+                            width: parent.width - x - Theme.horizontalPageMargin
+
+                            Label {
+                                width: parent.width
+                                text: model.name
+                                truncationMode: TruncationMode.Fade
+                                color: hostItem.highlighted ? Theme.highlightColor : Theme.primaryColor
+                            }
+                            Label {
+                                width: parent.width
+                                text: model.user + "@" + model.address + (model.port !== 22 ? ":" + model.port : "")
+                                truncationMode: TruncationMode.Fade
+                                font.pixelSize: Theme.fontSizeExtraSmall
+                                color: hostItem.highlighted ? Theme.secondaryHighlightColor : Theme.secondaryColor
+                            }
                         }
                     }
                 }
+            }
+
+            Label {
+                x: Theme.horizontalPageMargin
+                width: parent.width - 2 * Theme.horizontalPageMargin
+                visible: page.hostMessage.length > 0
+                text: page.hostMessage
+                wrapMode: Text.Wrap
+                font.pixelSize: Theme.fontSizeExtraSmall
+                color: Theme.secondaryHighlightColor
             }
         }
 

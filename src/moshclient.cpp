@@ -20,6 +20,8 @@
 static const quint64 DirectionMask = quint64(1) << 63;
 static const quint64 SequenceMask = ~DirectionMask;
 static const quint64 Shutdown = quint64(-1);
+// The parent of a received state that is a whole screen of its own
+static const quint64 NoParent = quint64(-2);
 static const unsigned ProtocolVersion = 2;
 // Nonce, timestamps, OCB tag and fragment header around the payload in each
 // datagram, which stays below the smallest IPv6 MTU
@@ -398,6 +400,24 @@ static QByteArray describeScreen(const QList<QPair<QByteArray, QSize> > &steps)
     return out;
 }
 
+static int onMirrorPush(int, const VTermScreenCell *, void *user)
+{
+    ++*static_cast<int *>(user);
+    return 1;
+}
+
+static const VTermScreenCallbacks s_mirrorCallbacks = {
+    nullptr, // damage
+    nullptr, // moverect
+    nullptr, // movecursor
+    nullptr, // settermprop
+    nullptr, // bell
+    nullptr, // resize
+    &onMirrorPush,
+    nullptr, // sb_popline
+    nullptr, // sb_clear
+};
+
 // --- The client ---
 
 MoshClient::MoshClient()
@@ -429,11 +449,19 @@ MoshClient::MoshClient()
     , m_shutdownStart(0)
     , m_lastAckSent(0)
     , m_ackNum(0)
-    , m_checkpointNum(0)
-    , m_checkpointColumns(80)
-    , m_checkpointRows(24)
+    , m_latest(0)
+    , m_shownScroll(0)
     , m_heard(false)
     , m_finished(false)
+    , m_journal(nullptr)
+    , m_seqReserved(0)
+    , m_journaledFront(0)
+    , m_stateReserved(0)
+    , m_stateFloor(0)
+    , m_bytesWritten(0)
+    , m_echoAck(0)
+    , m_mirror(nullptr)
+    , m_mirrorScrolled(0)
 {
     std::memset(&m_remote, 0, sizeof(m_remote));
     std::memset(m_key, 0, sizeof(m_key));
@@ -442,6 +470,9 @@ MoshClient::MoshClient()
 
 MoshClient::~MoshClient()
 {
+    if (m_mirror)
+        vterm_free(m_mirror);
+    delete m_journal;
     for (const Socket &socket : m_sockets)
         close(socket.fd);
     if (m_encrypt)
@@ -453,32 +484,17 @@ MoshClient::~MoshClient()
 
 bool MoshClient::start(const sockaddr *address, socklen_t length, const QByteArray &key, int columns, int rows)
 {
-    // 22 characters of base64 without the padding, 16 bytes
-    const QByteArray decoded = QByteArray::fromBase64(key + "==");
-    if (key.size() != 22 || decoded.size() != 16 || decoded.toBase64() != key + "==") {
-        fail(tr("The server sent an invalid mosh key"));
-        return false;
-    }
-    std::memcpy(m_key, decoded.constData(), 16);
     if (length > sizeof(m_remote)) {
         fail(tr("Invalid server address"));
         return false;
     }
     std::memcpy(&m_remote, address, length);
     m_remoteLength = length;
-
-    m_encrypt = EVP_CIPHER_CTX_new();
-    m_decrypt = EVP_CIPHER_CTX_new();
-    if (!m_encrypt || !m_decrypt
-            || EVP_CipherInit_ex(m_encrypt, EVP_aes_128_ocb(), nullptr, m_key, nullptr, 1) != 1
-            || EVP_CIPHER_CTX_ctrl(m_encrypt, EVP_CTRL_AEAD_SET_IVLEN, 12, nullptr) != 1
-            || EVP_CIPHER_CTX_ctrl(m_encrypt, EVP_CTRL_AEAD_SET_TAG, 16, nullptr) != 1
-            || EVP_CipherInit_ex(m_decrypt, EVP_aes_128_ocb(), nullptr, m_key, nullptr, 0) != 1
-            || EVP_CIPHER_CTX_ctrl(m_decrypt, EVP_CTRL_AEAD_SET_IVLEN, 12, nullptr) != 1
-            || EVP_CIPHER_CTX_ctrl(m_decrypt, EVP_CTRL_AEAD_SET_TAG, 16, nullptr) != 1) {
-        fail(tr("AES-OCB encryption is not available"));
+    if (!setKey(key))
         return false;
-    }
+    // mosh-server's first screen, an empty 80x24 one, which its first changes start from
+    m_states.insert(0, ReceivedState { 0, NoParent, QByteArray(), 80, 24, 0 });
+    resetMirror(QByteArray(), 80, 24);
 
     m_lastHeard = now();
     m_lastRoundtripSuccess = now();
@@ -492,6 +508,266 @@ bool MoshClient::start(const sockaddr *address, socklen_t length, const QByteArr
     return true;
 }
 
+bool MoshClient::resume(const QString &journalPath, const QByteArray &key, int columns, int rows)
+{
+    if (!readJournal(journalPath) || stepsTo(m_latest).isEmpty()) {
+        fail(tr("The saved mosh session is damaged"));
+        return false;
+    }
+    if (!setKey(key))
+        return false;
+    // Any number below the reservations may have gone out before
+    m_nextSeq = m_seqReserved;
+    m_stateFloor = m_stateReserved;
+    m_lastHeard = now();
+    m_lastRoundtripSuccess = now();
+    // Starting from the front, which the server is sure to have, and long
+    // enough ago that none of the others is taken for received
+    while (!m_sent.isEmpty() && m_sent.first().num < m_journaledFront)
+        m_sent.removeFirst();
+    if (m_sent.isEmpty() || m_sent.first().num != m_journaledFront)
+        m_sent.prepend(SentState { m_journaledFront, m_eventBase, 0 });
+    m_ackNum = m_latest;
+    m_nextAckTime = now();
+    m_nextSendTime = now();
+
+    const ReceivedState &latest = m_states[m_latest];
+    const QByteArray screen = describeScreen(stepsTo(m_latest));
+    m_output.append(Output { QByteArray(), true, screen, 0 });
+    m_shownScroll = latest.scrollIndex;
+    resetMirror(screen, latest.columns, latest.rows);
+
+    if (!setJournal(journalPath) || !newSocket())
+        return false;
+    resize(columns, rows);
+    return true;
+}
+
+void MoshClient::resetMirror(const QByteArray &screen, int columns, int rows)
+{
+    if (m_mirror)
+        vterm_free(m_mirror);
+    // Set up as Terminal sets up its own, so the same lines scroll off
+    m_mirror = vterm_new(rows, columns);
+    vterm_set_utf8(m_mirror, 1);
+    VTermScreen *mirrorScreen = vterm_obtain_screen(m_mirror);
+    vterm_screen_set_callbacks(mirrorScreen, &s_mirrorCallbacks, &m_mirrorScrolled);
+    vterm_screen_enable_altscreen(mirrorScreen, 1);
+    vterm_screen_enable_reflow(mirrorScreen, false);
+    vterm_screen_reset(mirrorScreen, 1);
+    vterm_input_write(m_mirror, screen.constData(), size_t(screen.size()));
+    vterm_screen_flush_damage(mirrorScreen);
+}
+
+int MoshClient::writeMirror(const QByteArray &bytes, int columns, int rows)
+{
+    int mirrorRows;
+    int mirrorColumns;
+    vterm_get_size(m_mirror, &mirrorRows, &mirrorColumns);
+    if (mirrorRows != rows || mirrorColumns != columns)
+        vterm_set_size(m_mirror, rows, columns);
+    m_mirrorScrolled = 0;
+    vterm_input_write(m_mirror, bytes.constData(), size_t(bytes.size()));
+    vterm_screen_flush_damage(vterm_obtain_screen(m_mirror));
+    return m_mirrorScrolled;
+}
+
+bool MoshClient::setKey(const QByteArray &key)
+{
+    // 22 characters of base64 without the padding, 16 bytes
+    const QByteArray decoded = QByteArray::fromBase64(key + "==");
+    if (key.size() != 22 || decoded.size() != 16 || decoded.toBase64() != key + "==") {
+        fail(tr("The server sent an invalid mosh key"));
+        return false;
+    }
+    std::memcpy(m_key, decoded.constData(), 16);
+
+    m_encrypt = EVP_CIPHER_CTX_new();
+    m_decrypt = EVP_CIPHER_CTX_new();
+    if (!m_encrypt || !m_decrypt
+            || EVP_CipherInit_ex(m_encrypt, EVP_aes_128_ocb(), nullptr, m_key, nullptr, 1) != 1
+            || EVP_CIPHER_CTX_ctrl(m_encrypt, EVP_CTRL_AEAD_SET_IVLEN, 12, nullptr) != 1
+            || EVP_CIPHER_CTX_ctrl(m_encrypt, EVP_CTRL_AEAD_SET_TAG, 16, nullptr) != 1
+            || EVP_CipherInit_ex(m_decrypt, EVP_aes_128_ocb(), nullptr, m_key, nullptr, 0) != 1
+            || EVP_CIPHER_CTX_ctrl(m_decrypt, EVP_CTRL_AEAD_SET_IVLEN, 12, nullptr) != 1
+            || EVP_CIPHER_CTX_ctrl(m_decrypt, EVP_CTRL_AEAD_SET_TAG, 16, nullptr) != 1) {
+        fail(tr("AES-OCB encryption is not available"));
+        return false;
+    }
+    return true;
+}
+
+// Records are a type byte, a big-endian length and the data
+bool MoshClient::setJournal(const QString &path)
+{
+    delete m_journal;
+    m_journal = new QFile(path);
+    if (!m_journal->open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        delete m_journal;
+        m_journal = nullptr;
+        return false;
+    }
+    rewriteJournal();
+    return true;
+}
+
+void MoshClient::setJournalNote(const QByteArray &note)
+{
+    m_journalNote = note;
+    if (m_journal)
+        rewriteJournal();
+}
+
+static QByteArray number(quint64 value)
+{
+    QByteArray data(8, Qt::Uninitialized);
+    qToBigEndian(value, reinterpret_cast<uchar *>(data.data()));
+    return data;
+}
+
+static QByteArray stateRecord(const MoshClient *, quint64 num, quint64 parent, int columns, int rows, qint64 scrollIndex,
+                              const QByteArray &bytes)
+{
+    return number(num) + number(parent) + number(quint64(quint32(columns)) << 32 | quint32(rows))
+            + number(quint64(scrollIndex)) + bytes;
+}
+
+void MoshClient::journal(char type, const QByteArray &data)
+{
+    if (!m_journal)
+        return;
+    QByteArray record(5, Qt::Uninitialized);
+    record[0] = type;
+    qToBigEndian(quint32(data.size()), reinterpret_cast<uchar *>(record.data()) + 1);
+    m_journal->write(record + data);
+    // Into the system, which keeps it when the app is gone
+    m_journal->flush();
+}
+
+void MoshClient::rewriteJournal()
+{
+    static const quint64 SeqBlock = 1 << 16;
+    if (!m_journal)
+        return;
+    m_journal->resize(0);
+    m_journal->seek(0);
+    m_seqReserved = qMax(m_seqReserved, m_nextSeq + SeqBlock);
+    m_stateReserved = qMax(m_stateReserved, (m_sent.isEmpty() ? 0 : m_sent.last().num) + SeqBlock);
+    journal('A', QByteArray(reinterpret_cast<const char *>(&m_remote), int(m_remoteLength)));
+    journal('N', m_journalNote);
+    journal('Q', number(m_seqReserved));
+    journal('M', number(m_stateReserved));
+    m_journaledFront = m_sent.isEmpty() ? m_journaledFront : m_sent.first().num;
+    journal('F', number(m_journaledFront));
+    for (const ReceivedState &state : m_states)
+        journal('S', stateRecord(this, state.num, state.parent, state.columns, state.rows, state.scrollIndex, state.diff));
+    journal('L', number(m_latest));
+    // What the server may not have taken in yet, it is in its states from the front on
+    journal('B', number(quint64(m_eventBase)));
+    for (int i = 0; i < m_events.size(); ++i)
+        journalEvent(m_eventBase + i, m_events.at(i));
+    for (const SentState &sent : m_sent)
+        journal('T', number(sent.num) + number(quint64(sent.events)));
+}
+
+QByteArray MoshClient::journalNote(const QString &journalPath)
+{
+    MoshClient reader;
+    return reader.readJournal(journalPath) ? reader.m_journalNote : QByteArray();
+}
+
+bool MoshClient::readJournal(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly) || file.size() > 64 * 1024 * 1024)
+        return false;
+    const QByteArray data = file.readAll();
+    const uchar *bytes = reinterpret_cast<const uchar *>(data.constData());
+    bool haveAddress = false;
+    m_states.clear();
+    for (int pos = 0; pos + 5 <= data.size();) {
+        const char type = data.at(pos);
+        const quint32 length = qFromBigEndian<quint32>(bytes + pos + 1);
+        // A record cut short was being written when the app went
+        if (length > quint32(data.size() - pos - 5))
+            break;
+        const QByteArray record = data.mid(pos + 5, int(length));
+        const uchar *field = reinterpret_cast<const uchar *>(record.constData());
+        pos += 5 + int(length);
+        switch (type) {
+        case 'A':
+            if (record.size() > int(sizeof(m_remote)) || record.isEmpty())
+                return false;
+            std::memcpy(&m_remote, record.constData(), size_t(record.size()));
+            m_remoteLength = socklen_t(record.size());
+            haveAddress = true;
+            break;
+        case 'N':
+            m_journalNote = record;
+            break;
+        case 'Q':
+        case 'F':
+        case 'L':
+        case 'M':
+            if (record.size() != 8)
+                return false;
+            (type == 'Q' ? m_seqReserved : type == 'F' ? m_journaledFront : type == 'L' ? m_latest : m_stateReserved)
+                    = qFromBigEndian<quint64>(field);
+            break;
+        case 'B':
+            if (record.size() != 8)
+                return false;
+            m_eventBase = qint64(qFromBigEndian<quint64>(field));
+            m_events.clear();
+            m_sent.clear();
+            break;
+        case 'E': {
+            if (record.size() < 9)
+                return false;
+            const qint64 index = qint64(qFromBigEndian<quint64>(field)) - m_eventBase;
+            const char kind = record.at(8);
+            if (index < 0 || index > m_events.size())
+                break;
+            if (index == m_events.size())
+                m_events.append(UserEvent { QByteArray(), 0, 0 });
+            if (kind == 'K') {
+                m_events[int(index)].keys += record.mid(9);
+            } else if (kind == 'R' && record.size() == 17) {
+                const quint64 size = qFromBigEndian<quint64>(field + 9);
+                m_events[int(index)].columns = int(qBound<quint64>(1, size >> 32, 4096));
+                m_events[int(index)].rows = int(qBound<quint64>(1, size & 0xffffffff, 4096));
+            }
+            break;
+        }
+        case 'T': {
+            if (record.size() != 16)
+                return false;
+            const quint64 num = qFromBigEndian<quint64>(field);
+            const qint64 events = qint64(qFromBigEndian<quint64>(field + 8));
+            // Only those on top of the front, the server forgets the rest
+            if (num >= m_journaledFront && events >= m_eventBase && events <= m_eventBase + m_events.size()
+                    && (m_sent.isEmpty() || num > m_sent.last().num))
+                m_sent.append(SentState { num, events, 0 });
+            break;
+        }
+        case 'S': {
+            if (record.size() < 32)
+                return false;
+            const quint64 size = qFromBigEndian<quint64>(field + 16);
+            ReceivedState state { qFromBigEndian<quint64>(field), qFromBigEndian<quint64>(field + 8), record.mid(32),
+                                  int(qBound<quint64>(1, size >> 32, 4096)), int(qBound<quint64>(1, size & 0xffffffff, 4096)),
+                                  qint64(qFromBigEndian<quint64>(field + 24)) };
+            m_states.insert(state.num, state);
+            break;
+        }
+        default:
+            return false;
+        }
+    }
+    return haveAddress && m_seqReserved > 0 && m_stateReserved > 0 && m_states.contains(m_latest);
+
+}
+
 QVector<int> MoshClient::fds() const
 {
     QVector<int> fds;
@@ -502,7 +778,8 @@ QVector<int> MoshClient::fds() const
 
 quint64 MoshClient::now() const
 {
-    return quint64(m_clock.elapsed());
+    // Ahead of 0, so states restored with timestamp 0 are long past
+    return quint64(m_clock.elapsed()) + 100000;
 }
 
 quint16 MoshClient::timestamp16() const
@@ -628,6 +905,9 @@ void MoshClient::sendPacket(const QByteArray &payload)
     qToBigEndian(timestamp16(), reinterpret_cast<uchar *>(plaintext.data()));
     qToBigEndian(timestampReply, reinterpret_cast<uchar *>(plaintext.data()) + 2);
     plaintext += payload;
+    // A nonce must never come twice, so a restart goes on above what may have been used
+    if (m_journal && m_nextSeq >= m_seqReserved)
+        rewriteJournal();
     const QByteArray packet = encrypt(m_nextSeq++ & SequenceMask, plaintext);
     if (packet.isEmpty())
         return;
@@ -780,32 +1060,34 @@ void MoshClient::receiveInstruction(const QByteArray &instruction)
     throwAwayUntil(throwawayNum);
 }
 
+QList<QPair<QByteArray, QSize> > MoshClient::stepsTo(quint64 num) const
+{
+    QList<QPair<QByteArray, QSize> > steps;
+    for (quint64 at = num; ; ) {
+        const auto state = m_states.constFind(at);
+        if (state == m_states.constEnd() || steps.size() > m_states.size())
+            return QList<QPair<QByteArray, QSize> >();
+        steps.prepend(qMakePair(state->diff, QSize(state->columns, state->rows)));
+        if (state->parent == NoParent)
+            return steps;
+        at = state->parent;
+    }
+}
+
 void MoshClient::applyDiff(quint64 oldNum, quint64 newNum, const QByteArray &diff)
 {
-    // Already have it
-    if (newNum == m_checkpointNum)
+    // States only ever go forward, an older one coming late is no news. Nor is
+    // one from a state that is gone or never came, the server sends it again
+    // from one acknowledged.
+    if (newNum <= m_latest || m_states.contains(newNum) || !m_states.contains(oldNum))
         return;
-    for (const ReceivedState &state : m_received) {
-        if (state.num == newNum)
-            return;
-    }
-    // Changes from a state that is gone or never came are dropped, the
-    // server sends them again from one acknowledged
-    int base = -2;
-    if (oldNum == m_checkpointNum)
-        base = -1;
-    for (int i = 0; i < m_received.size() && base == -2; ++i) {
-        if (m_received.at(i).num == oldNum)
-            base = i;
-    }
-    if (base == -2)
-        return;
+    const ReceivedState &base = m_states[oldNum];
 
     // A HostMessage: repeated Instruction { HostBytes hostbytes = 2; ResizeMessage resize = 3; EchoAck echoack = 7 }
     // The server's screen size, which its resizes change
     QByteArray bytes;
-    int columns = base < 0 ? m_checkpointColumns : m_received.at(base).columns;
-    int rows = base < 0 ? m_checkpointRows : m_received.at(base).rows;
+    int columns = base.columns;
+    int rows = base.rows;
     ProtoReader message(diff);
     int field;
     int wireType;
@@ -820,7 +1102,7 @@ void MoshClient::applyDiff(quint64 oldNum, quint64 newNum, const QByteArray &dif
         int innerType;
         while (inner.next(&innerField, &innerType)) {
             QByteArray extension;
-            if (innerType != 2 || (innerField != 2 && innerField != 3) || !inner.bytes(&extension)) {
+            if (innerType != 2 || (innerField != 2 && innerField != 3 && innerField != 7) || !inner.bytes(&extension)) {
                 inner.skip(innerType);
                 continue;
             }
@@ -833,6 +1115,10 @@ void MoshClient::applyDiff(quint64 oldNum, quint64 newNum, const QByteArray &dif
                     QByteArray hostBytes;
                     values.bytes(&hostBytes);
                     bytes += hostBytes;
+                } else if (innerField == 7 && valueField == 8 && valueType == 0) {
+                    // The newest of our states whose keys the server has echoed
+                    values.varint(&number);
+                    m_echoAck = qMax(m_echoAck, number);
                 } else if (innerField == 3 && (valueField == 5 || valueField == 6) && valueType == 0) {
                     values.varint(&number);
                     const int size = int(qBound<quint64>(1, number, 4096));
@@ -849,19 +1135,31 @@ void MoshClient::applyDiff(quint64 oldNum, quint64 newNum, const QByteArray &dif
     if (!message.ok())
         return;
 
-    if (base == m_received.size() - 1) {
-        m_output.append(Output { bytes, false });
+    // Lines the base's screen scrolled off before the terminal got them are in
+    // its scrollback already, from the way the terminal came
+    const int skipLines = int(qMax<qint64>(0, m_shownScroll - base.scrollIndex));
+    int scrolled;
+    if (oldNum == m_latest) {
+        scrolled = writeMirror(bytes, columns, rows);
+        m_output.append(Output { bytes, false, QByteArray(), skipLines });
     } else {
         // The terminal shows a later state than these changes start from, so
         // it is put back into that state first
-        QList<QPair<QByteArray, QSize> > steps;
-        steps.append(qMakePair(m_checkpoint, QSize(m_checkpointColumns, m_checkpointRows)));
-        for (int i = 0; i <= base; ++i)
-            steps.append(qMakePair(m_received.at(i).diff, QSize(m_received.at(i).columns, m_received.at(i).rows)));
-        m_received.erase(m_received.begin() + base + 1, m_received.end());
-        m_output.append(Output { describeScreen(steps) + bytes, true });
+        const QList<QPair<QByteArray, QSize> > steps = stepsTo(oldNum);
+        if (steps.isEmpty())
+            return;
+        const QByteArray screen = describeScreen(steps);
+        resetMirror(screen, base.columns, base.rows);
+        scrolled = writeMirror(bytes, columns, rows);
+        m_output.append(Output { bytes, true, screen, skipLines });
     }
-    m_received.append(ReceivedState { newNum, bytes, columns, rows });
+    const ReceivedState state { newNum, oldNum, bytes, columns, rows, base.scrollIndex + scrolled };
+    m_states.insert(newNum, state);
+    m_latest = newNum;
+    m_shownScroll = qMax(m_shownScroll, state.scrollIndex);
+    // Acknowledged only once it would be there after a restart
+    journal('S', stateRecord(this, state.num, state.parent, state.columns, state.rows, state.scrollIndex, state.diff));
+    journal('L', number(m_latest));
 
     m_ackNum = newNum;
     m_lastHeard = now();
@@ -871,27 +1169,38 @@ void MoshClient::applyDiff(quint64 oldNum, quint64 newNum, const QByteArray &dif
 
 void MoshClient::throwAwayUntil(quint64 num)
 {
-    // The server no longer sends changes from states before num, so they
-    // fold into the checkpoint. Only once there are many, as it costs a replay.
-    int last = -1;
+    // The server no longer sends changes from states before num. Those that
+    // later states are reached through become part of them, only once there
+    // are many, as it costs a replay.
     int bytes = 0;
-    for (int i = 0; i < m_received.size() && m_received.at(i).num < num; ++i) {
-        last = i;
-        bytes += m_received.at(i).diff.size();
-    }
-    // The newest state stays, the terminal shows it
-    last = qMin(last, m_received.size() - 2);
-    if (last < 0 || (last + 1 < MaxReceivedStates && bytes < MaxReceivedBytes))
+    for (const ReceivedState &state : m_states)
+        bytes += state.diff.size();
+    if (!m_states.contains(num) || (m_states.size() < MaxReceivedStates && bytes < MaxReceivedBytes))
         return;
-    QList<QPair<QByteArray, QSize> > steps;
-    steps.append(qMakePair(m_checkpoint, QSize(m_checkpointColumns, m_checkpointRows)));
-    for (int i = 0; i <= last; ++i)
-        steps.append(qMakePair(m_received.at(i).diff, QSize(m_received.at(i).columns, m_received.at(i).rows)));
-    m_checkpoint = describeScreen(steps);
-    m_checkpointNum = m_received.at(last).num;
-    m_checkpointColumns = m_received.at(last).columns;
-    m_checkpointRows = m_received.at(last).rows;
-    m_received.erase(m_received.begin(), m_received.begin() + last + 1);
+    QMap<quint64, ReceivedState> kept;
+    for (auto it = m_states.lowerBound(num); it != m_states.end(); ++it) {
+        ReceivedState state = it.value();
+        // Reached by way of a state that goes, so it becomes a whole screen of its own
+        quint64 at = state.parent;
+        bool throughKept = state.parent == NoParent;
+        while (!throughKept && m_states.contains(at) && at >= num) {
+            if (m_states[at].parent == NoParent || at == num) {
+                throughKept = true;
+                break;
+            }
+            at = m_states[at].parent;
+        }
+        if (!throughKept || state.num == num) {
+            const QList<QPair<QByteArray, QSize> > steps = stepsTo(state.num);
+            if (steps.isEmpty())
+                continue;
+            state.diff = describeScreen(steps);
+            state.parent = NoParent;
+        }
+        kept.insert(state.num, state);
+    }
+    m_states = kept;
+    rewriteJournal();
 }
 
 QList<MoshClient::Output> MoshClient::takeOutput()
@@ -907,13 +1216,16 @@ void MoshClient::write(const QByteArray &keys)
 {
     if (m_shutdownInProgress || keys.isEmpty())
         return;
+    m_bytesWritten += keys.size();
     if (!m_events.isEmpty() && m_events.last().columns == 0
             && m_eventBase + m_events.size() > m_sent.last().events) {
         // Not sent yet, so it can still grow
         m_events.last().keys += keys;
+        journalEvent(m_eventBase + m_events.size() - 1, UserEvent { keys, 0, 0 });
         return;
     }
     m_events.append(UserEvent { keys, 0, 0 });
+    journalEvent(m_eventBase + m_events.size() - 1, m_events.last());
 }
 
 void MoshClient::resize(int columns, int rows)
@@ -921,6 +1233,20 @@ void MoshClient::resize(int columns, int rows)
     if (m_shutdownInProgress || columns <= 0 || rows <= 0)
         return;
     m_events.append(UserEvent { QByteArray(), columns, rows });
+    journalEvent(m_eventBase + m_events.size() - 1, m_events.last());
+}
+
+// Keys for an index that is there already add to it
+void MoshClient::journalEvent(qint64 index, const UserEvent &event)
+{
+    if (!m_journal)
+        return;
+    QByteArray data = number(quint64(index));
+    if (event.columns > 0)
+        data += 'R' + number(quint64(quint32(event.columns)) << 32 | quint32(event.rows));
+    else
+        data += 'K' + event.keys;
+    journal('E', data);
 }
 
 QByteArray MoshClient::userDiff(qint64 from) const
@@ -1038,7 +1364,7 @@ void MoshClient::shutdown()
 void MoshClient::sendEmptyAck()
 {
     const quint64 time = now();
-    const quint64 num = m_shutdownInProgress ? Shutdown : m_sent.last().num + 1;
+    const quint64 num = m_shutdownInProgress ? Shutdown : qMax(m_sent.last().num + 1, m_stateFloor);
     addSentState(time, num, m_eventBase + m_events.size());
     sendInstruction(QByteArray(), num);
     m_nextAckTime = time + AckInterval;
@@ -1048,7 +1374,7 @@ void MoshClient::sendEmptyAck()
 void MoshClient::sendToReceiver(const QByteArray &diff)
 {
     const qint64 events = m_eventBase + m_events.size();
-    quint64 num = events == m_sent.last().events ? m_sent.last().num : m_sent.last().num + 1;
+    quint64 num = events == m_sent.last().events ? m_sent.last().num : qMax(m_sent.last().num + 1, m_stateFloor);
     if (m_shutdownInProgress)
         num = Shutdown;
     if (num == m_sent.last().num)
@@ -1061,8 +1387,22 @@ void MoshClient::sendToReceiver(const QByteArray &diff)
     m_nextSendTime = quint64(-1);
 }
 
+qint64 MoshClient::echoedBytes() const
+{
+    auto it = m_sentBytes.upperBound(m_echoAck);
+    if (it == m_sentBytes.constBegin())
+        return 0;
+    return (--it).value();
+}
+
 void MoshClient::addSentState(quint64 timestamp, quint64 num, qint64 events)
 {
+    if (m_journal && num != Shutdown && num >= m_stateReserved)
+        rewriteJournal();
+    journal('T', number(num) + number(quint64(events)));
+    m_sentBytes.insert(num, m_bytesWritten);
+    while (m_sentBytes.size() > 512)
+        m_sentBytes.erase(m_sentBytes.begin());
     m_sent.append(SentState { num, events, timestamp });
     if (m_sent.size() > MaxSentStates)
         m_sent.removeAt(m_sent.size() - 16);
@@ -1113,4 +1453,9 @@ void MoshClient::processAcknowledgment(quint64 ackNum)
         return;
     while (m_sent.first().num < ackNum)
         m_sent.removeFirst();
+    // The server forgets states before the front it is told, so that is where a restart starts from
+    if (m_journal && m_sent.first().num != m_journaledFront) {
+        m_journaledFront = m_sent.first().num;
+        journal('F', number(m_journaledFront));
+    }
 }

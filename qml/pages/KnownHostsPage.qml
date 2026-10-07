@@ -28,6 +28,8 @@ Page {
             id: delegate
 
             contentHeight: Theme.itemSizeMedium
+            onClicked: pageStack.animatorPush(Qt.resolvedUrl("KnownHostPage.qml"),
+                                              { hosts: model.hosts, keyType: model.keyType, fingerprint: model.fingerprint })
             menu: Component {
                 ContextMenu {
                     MenuItem {

@@ -22,7 +22,8 @@ public:
         NameRole,
         PublicKeyRole,
         FingerprintRole,
-        EncryptedRole
+        EncryptedRole,
+        CertificateRole
     };
 
     explicit KeyStore(SecretVault *vault, QObject *parent = nullptr);
@@ -51,6 +52,18 @@ public:
     // Emits privateKeyExported with the key in OpenSSH format, encrypted when a passphrase is given.
     // Keys kept encrypted come out as they are, with their own passphrase.
     Q_INVOKABLE void exportPrivateKey(const QString &keyId, const QString &passphrase);
+    // An OpenSSH certificate signed for the key, as in id_ed25519-cert.pub. Empty
+    // text removes it. Returns why it was refused, empty on success.
+    Q_INVOKABLE QString setCertificate(const QString &keyId, const QString &certificate);
+    // Why setCertificate() would refuse it, empty when it would not
+    Q_INVOKABLE QString checkCertificate(const QString &keyId, const QString &certificate) const;
+    QByteArray certificate(const QString &keyId) const;
+    Q_INVOKABLE QString certificateText(const QString &keyId) const { return QString::fromLatin1(certificate(keyId)); }
+    Q_INVOKABLE QString publicKey(const QString &keyId) const;
+    // The public parts of every key, for backups
+    QVariantList exportKeys() const;
+    // Adds a key from exportKeys() with its private key, unless one with the id is there
+    void restoreKey(const QVariantMap &map, const QByteArray &privateKey);
 
 signals:
     void countChanged();
@@ -67,6 +80,7 @@ private:
         QString fingerprint;
         // Kept with its passphrase, which is asked for on every connect
         bool encrypted;
+        QString certificate;
     };
 
     void loadIndex();

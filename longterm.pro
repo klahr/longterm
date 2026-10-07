@@ -19,11 +19,14 @@ PKGCONFIG += sailfishsecrets zlib
 
 SOURCES += src/longterm.cpp \
     src/appsettings.cpp \
+    src/backup.cpp \
     src/colorschemes.cpp \
+    src/hostlist.cpp \
     src/hoststore.cpp \
     src/keystore.cpp \
     src/knownhosts.cpp \
     src/moshclient.cpp \
+    src/qrimageprovider.cpp \
     src/secretvault.cpp \
     src/sessionfilter.cpp \
     src/sessionmanager.cpp \
@@ -35,11 +38,14 @@ SOURCES += src/longterm.cpp \
     src/terminalview.cpp
 
 HEADERS += src/appsettings.h \
+    src/backup.h \
     src/colorschemes.h \
+    src/hostlist.h \
     src/hoststore.h \
     src/keystore.h \
     src/knownhosts.h \
     src/moshclient.h \
+    src/qrimageprovider.h \
     src/secretvault.h \
     src/sessionfilter.h \
     src/sessionmanager.h \
@@ -88,6 +94,11 @@ vterm_encoding.target = encoding.o
 vterm_encoding.depends = $$vterm_decdrawing.target $$vterm_uk.target
 QMAKE_EXTRA_TARGETS += vterm_decdrawing vterm_uk vterm_encoding
 
+# QR codes for host key fingerprints (MIT), compiled into the app
+INCLUDEPATH += $$PWD/3rdparty/qrcodegen
+SOURCES += $$PWD/3rdparty/qrcodegen/qrcodegen.cpp
+HEADERS += $$PWD/3rdparty/qrcodegen/qrcodegen.hpp
+
 # libssh is not available on the device, so it is built from 3rdparty/libssh
 # and shipped as a private shared library in /usr/share/$${TARGET}/lib.
 # It needs its server code even here: only that hands channels the server
@@ -134,11 +145,13 @@ licenses.path = /usr/share/$${TARGET}/licenses
 licenses.extra = mkdir -p $(INSTALL_ROOT)$$licenses.path && \
     cp $$PWD/LICENSE $(INSTALL_ROOT)$$licenses.path/longterm.txt && \
     cp $$LIBSSH_SRC/COPYING $(INSTALL_ROOT)$$licenses.path/libssh.txt && \
-    cp $$LIBVTERM_SRC/LICENSE $(INSTALL_ROOT)$$licenses.path/libvterm.txt
+    cp $$LIBVTERM_SRC/LICENSE $(INSTALL_ROOT)$$licenses.path/libvterm.txt && \
+    cp $$PWD/3rdparty/qrcodegen/LICENSE $(INSTALL_ROOT)$$licenses.path/qrcodegen.txt
 INSTALLS += licenses
 
 DISTFILES += qml/longterm.qml \
     3rdparty/patches/libvterm/*.patch \
+    qml/components/AgentSummary.qml \
     qml/components/KeyButton.qml \
     qml/components/Keys.js \
     qml/components/StatusDot.qml \
@@ -146,23 +159,36 @@ DISTFILES += qml/longterm.qml \
     qml/images/systems/* \
     qml/cover/CoverPage.qml \
     qml/pages/AboutPage.qml \
+    qml/pages/BackupDialog.qml \
+    qml/pages/CertificateDialog.qml \
     qml/pages/ColorSchemesPage.qml \
     qml/pages/DownloadFileDialog.qml \
     qml/pages/EditSessionDialog.qml \
     qml/pages/ExportKeyDialog.qml \
     qml/pages/FilesPage.qml \
     qml/pages/GenerateKeyDialog.qml \
+    qml/pages/HistoryPage.qml \
     qml/pages/HostPage.qml \
     qml/pages/ImportHostsDialog.qml \
     qml/pages/ImportKeyDialog.qml \
+    qml/pages/ImportSchemeDialog.qml \
+    qml/pages/InstallKeyPage.qml \
     qml/pages/KeyPage.qml \
     qml/pages/KeysPage.qml \
+    qml/pages/KnownHostPage.qml \
     qml/pages/KnownHostsPage.qml \
     qml/pages/LicensePage.qml \
+    qml/pages/LockCodeDialog.qml \
+    qml/pages/LockPage.qml \
+    qml/pages/RestoreDialog.qml \
     qml/pages/SessionMenuPage.qml \
     qml/pages/SessionPage.qml \
     qml/pages/SessionsPage.qml \
     qml/pages/SettingsPage.qml \
+    qml/pages/ShareUploadPage.qml \
+    qml/pages/SnippetDialog.qml \
+    qml/pages/SnippetPickerPage.qml \
+    qml/pages/SnippetsPage.qml \
     qml/pages/ToolbarKeysPage.qml \
     rpm/longterm.changes \
     rpm/longterm.spec \
@@ -173,8 +199,10 @@ DISTFILES += qml/longterm.qml \
     README.md \
     icons/longterm.svg
 
-# Source Code Pro (SIL Open Font License 1.1, see fonts/LICENSE.md)
-fonts.files = fonts/SourceCodePro-Medium.ttf fonts/SourceCodePro-Bold.ttf fonts/LICENSE.md
+# Source Code Pro (SIL Open Font License 1.1, see fonts/LICENSE.md) and the
+# Nerd Fonts symbols (MIT, icons under their own licenses in fonts/NerdFonts-README.md)
+fonts.files = fonts/SourceCodePro-Medium.ttf fonts/SourceCodePro-Bold.ttf fonts/LICENSE.md \
+    fonts/SymbolsNerdFontMono-Regular.ttf fonts/NerdFonts-LICENSE.txt fonts/NerdFonts-README.md
 fonts.path = /usr/share/$${TARGET}/fonts
 INSTALLS += fonts
 

@@ -31,7 +31,11 @@ var all = [
     { id: "f9", label: "F9", key: Qt.Key_F9 },
     { id: "f10", label: "F10", key: Qt.Key_F10 },
     { id: "f11", label: "F11", key: Qt.Key_F11 },
-    { id: "f12", label: "F12", key: Qt.Key_F12 }
+    { id: "f12", label: "F12", key: Qt.Key_F12 },
+    // Drag it to send arrow keys, one for each step of the drag
+    { id: "arrows", label: "\u2725", action: "arrows" },
+    { id: "snippets", label: "Snip", action: "snippets" },
+    { id: "history", label: "Hist", action: "history" }
 ]
 
 function selected(ids) {

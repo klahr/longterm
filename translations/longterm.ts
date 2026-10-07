@@ -47,6 +47,167 @@
         <source>Open website</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Symbols for prompts and file listings, the icon sets keep their own licenses</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>QR codes of host key fingerprints, by Project Nayuki</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>AgentSummary</name>
+    <message numerus="yes">
+        <source>%n waiting</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n working</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n done</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+</context>
+<context>
+    <name>Backup</name>
+    <message>
+        <source>This is not a Longterm backup</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Wrong passphrase, or the file is damaged</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A backup needs a passphrase</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not encrypt the backup</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not save the backup: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not read %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The backup is from a newer version of Longterm</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Restored %n host(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>%n new key(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+</context>
+<context>
+    <name>BackupDialog</name>
+    <message>
+        <source>Back up</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Save</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The backup holds your private keys and saved passwords, encrypted with this passphrase. It goes to Documents/Longterm. Without the passphrase it cannot be restored.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Passphrase, at least 8 characters</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Passphrase</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The passphrases differ</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Again</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The same passphrase again</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>CertificateDialog</name>
+    <message>
+        <source>Certificate</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>OpenSSH certificate</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Paste the line of the key&apos;s -cert.pub file, empty for none</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Servers that trust your certificate authority accept the key with it, without the key in authorized_keys.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>ColorSchemes</name>
+    <message>
+        <source>The iTerm2 scheme is damaged</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The Windows Terminal scheme is damaged</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>foreground</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>background</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No color scheme found, use an iTerm2, Alacritty, Windows Terminal, Xresources or base16 one</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The scheme lacks colors: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not read %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Imported</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>ColorSchemesPage</name>
@@ -56,6 +217,14 @@
     </message>
     <message>
         <source>App default (%1)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Import scheme</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Delete</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -79,6 +248,10 @@
     </message>
     <message>
         <source>+%1 more</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Locked</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -198,10 +371,6 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Upload file</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>New folder</source>
         <translation type="unfinished"></translation>
     </message>
@@ -246,10 +415,6 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Pull down to upload a file</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Waiting: %1</source>
         <translation type="unfinished"></translation>
     </message>
@@ -259,6 +424,36 @@
     </message>
     <message>
         <source>Downloading %1, %2 of %3</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Upload a folder to %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Upload files</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Upload a folder</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Upload %n file(s) here</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Open</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Download folder</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pull down to upload files</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -290,6 +485,36 @@
     </message>
     <message>
         <source>Ed25519 suits almost every server. Pick RSA for older devices that do not accept it. The private key is kept in the device keychain.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>HistoryPage</name>
+    <message>
+        <source>History</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Nothing typed yet</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Commands typed in this session show up here</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Run</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Save as snippet</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>HostList</name>
+    <message>
+        <source>Favorites</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -396,10 +621,6 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>These take effect for saved hosts, give the host a name to use them.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Use mosh</source>
         <translation type="unfinished"></translation>
     </message>
@@ -487,6 +708,50 @@
         <source>The session stays through network changes and sleep, and typing does not wait for the network. Needs mosh-server on the host and UDP ports 60000 to 61000 open to it, without mosh-server it connects over SSH.</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Group</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Group, such as Work or Home</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hosts with the same group are listed together</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>mosh-server command</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>mosh-server, or a path such as /opt/homebrew/bin/mosh-server</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>For servers where mosh-server is not on the PATH of a non-interactive shell</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>MAC address for Wake-on-LAN</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Use six pairs of hex digits, such as 00:11:22:33:44:55</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>MAC address, to wake the host before connecting</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Log the session</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>What scrolls off the terminal is written to a file in Documents/Longterm</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>HostStore</name>
@@ -496,6 +761,14 @@
     </message>
     <message>
         <source>Too many hosts, %1 can be saved</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 copy</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1 copy %2</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -550,6 +823,68 @@
     </message>
 </context>
 <context>
+    <name>ImportSchemeDialog</name>
+    <message>
+        <source>Scheme file</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Import color scheme</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Import</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>File</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>None, paste it below</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Scheme</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Paste an iTerm2, Alacritty, Windows Terminal, Xresources or base16 scheme</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>InstallKeyPage</name>
+    <message>
+        <source>Install key</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Host</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Log in with this key from now on</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Once the key is in place. A saved password for the host is forgotten.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Logs in the way the host is set up, with its password if it has no key, and adds the public key to ~/.ssh/authorized_keys there.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Install</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>KeyPage</name>
     <message>
         <source>Add this line to ~/.ssh/authorized_keys on the server</source>
@@ -565,6 +900,18 @@
     </message>
     <message>
         <source>The private key is on the clipboard</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Change certificate</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Add certificate</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Install on a host</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -638,6 +985,18 @@
         <source>The key&apos;s encryption settings cannot be read</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>The key is gone</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This is not an OpenSSH certificate, it is the line in the -cert.pub file</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The certificate is for another key</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>KeysPage</name>
@@ -675,6 +1034,17 @@
     </message>
 </context>
 <context>
+    <name>KnownHostPage</name>
+    <message>
+        <source>On the server, ssh-keygen -lf with the host key&apos;s .pub file in /etc/ssh shows the same fingerprint. A phone or computer that reads QR codes can compare it with this one.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copy fingerprint</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>KnownHostsPage</name>
     <message>
         <source>Known hosts</source>
@@ -701,6 +1071,56 @@
     </message>
 </context>
 <context>
+    <name>LockCodeDialog</name>
+    <message>
+        <source>Lock code</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Code, at least 4 characters</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Code</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The codes differ</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Again</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The same code again</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Keys and passwords are in the device keychain either way. The code keeps others from using connections and saved hosts on an unlocked phone.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>LockPage</name>
+    <message>
+        <source>Too many wrong codes, wait a moment</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Wrong code</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Longterm is locked</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Lock code</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>MoshClient</name>
     <message>
         <source>The server sent an invalid mosh key</source>
@@ -720,6 +1140,56 @@
     </message>
     <message>
         <source>The server speaks mosh protocol version %1 instead of %2</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The saved mosh session is damaged</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>RestoreDialog</name>
+    <message>
+        <source>Backup file</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Restore</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Choose</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Passphrase</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hosts in the backup replace the ones they were saved from, keys that are here already stay.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>SessionManager</name>
+    <message>
+        <source>%1 is not a MAC address</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not send the wake-up packet: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The key is installed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>%1: install key</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The host has no MAC address</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -771,6 +1241,26 @@
     </message>
     <message>
         <source>Download file</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Share scrollback</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Snippets</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>History</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Saved to %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Save scrollback</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -921,6 +1411,34 @@
         <source>About</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Search hosts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No matching hosts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remove from favorites</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Add to favorites</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Duplicate</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Wake up</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sent a wake-up packet to %1</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>SettingsPage</name>
@@ -1020,6 +1538,94 @@
         <source>Read %1 hosts</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Saved the backup to %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Font</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Symbols for prompts such as starship come from Nerd Fonts whatever the font</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Toolbar at the top</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Instead of above the keyboard</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Connection name in landscape</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Turn off for one more row of terminal when the phone is on its side</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Snippets</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show typing ahead over mosh</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>On slow connections, typed text shows underlined until the server echoes it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Security</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Lock the app</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Asks for a code before showing connections, also after a while in the background</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Lock after</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Leaving the app</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>1 minute</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>5 minutes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>15 minutes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>1 hour</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Back up everything</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hosts, keys, saved passwords, snippets and settings in one encrypted file</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Restore a backup</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>SftpBrowser</name>
@@ -1029,6 +1635,10 @@
     </message>
     <message>
         <source>Disconnected</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>shared.txt</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -1095,10 +1705,6 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>%1 is a folder, only files can be downloaded</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>download</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1114,6 +1720,132 @@
         <source>Could not write %1</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Could not make the folder %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>ShareUploadPage</name>
+    <message numerus="yes">
+        <source>Upload %n file(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Choose the connection to upload to</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No connections</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Connect to a host first, then share again</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>SnippetDialog</name>
+    <message>
+        <source>Edit snippet</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>New snippet</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Name</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Name, the text itself when empty</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Text</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Command or text to type</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Press Enter after it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Runs the command right away instead of leaving it to edit</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Host</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>All hosts</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>SnippetPickerPage</name>
+    <message>
+        <source>Manage snippets</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>New snippet</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Snippets</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No snippets</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pull down to add commands you type often</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>SnippetsPage</name>
+    <message>
+        <source>All hosts</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Deleted host</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>New snippet</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Snippets</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Typed from the Snip key or the session menu</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No snippets</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pull down to add one</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Delete</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>SshSession</name>
@@ -1127,6 +1859,26 @@
     </message>
     <message>
         <source>Network changed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not write the session log: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>--- Connected to %1@%2 at %3 ---</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>--- Disconnected at %1 ---</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not save the scrollback: %1</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The mosh session was gone from the server, connecting again</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -1354,6 +2106,18 @@
     </message>
     <message>
         <source>mosh-server did not start (%1), going on over SSH.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not run the command</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The key&apos;s certificate could not be used, logging in with the plain key</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The login needs an answer</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

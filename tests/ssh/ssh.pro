@@ -10,7 +10,11 @@ ROOT = $$PWD/../..
 INCLUDEPATH += $$PWD/stubs $$ROOT/src
 SOURCES += main.cpp \
     secretvault_stub.cpp \
+    $$ROOT/src/appsettings.cpp \
+    $$ROOT/src/backup.cpp \
     $$ROOT/src/colorschemes.cpp \
+    $$ROOT/src/hoststore.cpp \
+    $$ROOT/src/sessionmanager.cpp \
     $$ROOT/src/keystore.cpp \
     $$ROOT/src/moshclient.cpp \
     $$ROOT/src/sftpbrowser.cpp \
@@ -18,7 +22,11 @@ SOURCES += main.cpp \
     $$ROOT/src/sshagent.cpp \
     $$ROOT/src/sshsession.cpp \
     $$ROOT/src/terminal.cpp
-HEADERS += $$ROOT/src/colorschemes.h \
+HEADERS += $$ROOT/src/appsettings.h \
+    $$ROOT/src/backup.h \
+    $$ROOT/src/colorschemes.h \
+    $$ROOT/src/hoststore.h \
+    $$ROOT/src/sessionmanager.h \
     $$ROOT/src/keystore.h \
     $$ROOT/src/moshclient.h \
     $$ROOT/src/secretvault.h \

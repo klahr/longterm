@@ -19,6 +19,9 @@ class TerminalView : public QQuickPaintedItem
     Q_PROPERTY(int scrollOffset READ scrollOffset WRITE setScrollOffset NOTIFY scrollOffsetChanged)
     Q_PROPERTY(bool ctrlLatched READ ctrlLatched WRITE setCtrlLatched NOTIFY latchedChanged)
     Q_PROPERTY(bool altLatched READ altLatched WRITE setAltLatched NOTIFY latchedChanged)
+    // Locked modifiers stay down for every key until unlocked
+    Q_PROPERTY(bool ctrlLocked READ ctrlLocked WRITE setCtrlLocked NOTIFY latchedChanged)
+    Q_PROPERTY(bool altLocked READ altLocked WRITE setAltLocked NOTIFY latchedChanged)
     Q_PROPERTY(QColor selectionColor READ selectionColor WRITE setSelectionColor NOTIFY selectionColorChanged)
     Q_PROPERTY(bool hasSelection READ hasSelection NOTIFY selectionChanged)
     Q_PROPERTY(QString colorScheme READ colorScheme WRITE setColorScheme NOTIFY colorSchemeChanged)
@@ -44,6 +47,10 @@ public:
     void setCtrlLatched(bool latched);
     bool altLatched() const { return m_altLatched; }
     void setAltLatched(bool latched);
+    bool ctrlLocked() const { return m_ctrlLocked; }
+    void setCtrlLocked(bool locked);
+    bool altLocked() const { return m_altLocked; }
+    void setAltLocked(bool locked);
     QColor selectionColor() const { return m_selectionColor; }
     void setSelectionColor(const QColor &color);
     bool hasSelection() const { return m_hasSelection; }
@@ -87,6 +94,9 @@ signals:
     void colorSchemeChanged();
     void previewChanged();
     void radiusChanged();
+    // A hardware keyboard shortcut for the app rather than the server: "next",
+    // "previous", "new", "find" or "menu"
+    void shortcut(const QString &name);
 
 protected:
     void geometryChanged(const QRectF &newGeometry, const QRectF &oldGeometry) override;
@@ -117,6 +127,8 @@ private:
     int m_scrollOffset;
     bool m_ctrlLatched;
     bool m_altLatched;
+    bool m_ctrlLocked;
+    bool m_altLocked;
     QColor m_selectionColor;
     bool m_hasSelection;
     int m_anchorLine;

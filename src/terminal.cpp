@@ -51,6 +51,10 @@ Terminal::Terminal(QObject *parent)
     , m_answersQueries(true)
     , m_writing(false)
     , m_keepScrolledLines(true)
+    , m_skipScrolledLines(0)
+    , m_reportScrolledLines(false)
+    , m_predictionRow(-1)
+    , m_predictionColumn(0)
     , m_clipboardTooLarge(false)
     , m_scrolledLines(0)
     , m_droppedLines(0)
@@ -103,6 +107,46 @@ VTermScreenCell Terminal::cell(int row, int column) const
     return m_scrollback.at(index).at(column);
 }
 
+static QString cellsText(const VTermScreenCell *cells, int columns)
+{
+    QString text;
+    for (int column = 0; column < columns; ++column) {
+        const VTermScreenCell &cell = cells[column];
+        // Right half of a wide character
+        if (cell.chars[0] == uint32_t(-1))
+            continue;
+        if (cell.chars[0] == 0) {
+            text += QLatin1Char(' ');
+            continue;
+        }
+        for (int i = 0; i < VTERM_MAX_CHARS_PER_CELL && cell.chars[i]; ++i)
+            text += cell.chars[i] <= 0x10ffff ? QString::fromUcs4(&cell.chars[i], 1) : QString(QChar::ReplacementCharacter);
+    }
+    while (text.endsWith(QLatin1Char(' ')))
+        text.chop(1);
+    return text;
+}
+
+void Terminal::setPrediction(int row, int column, const QString &text)
+{
+    if (row < 0 && m_predictionRow < 0)
+        return;
+    if (row == m_predictionRow && column == m_predictionColumn && text == m_prediction)
+        return;
+    m_predictionRow = text.isEmpty() ? -1 : row;
+    m_predictionColumn = column;
+    m_prediction = text;
+    emit contentChanged();
+}
+
+QString Terminal::text(int row) const
+{
+    QVector<VTermScreenCell> cells(m_columns);
+    for (int column = 0; column < m_columns; ++column)
+        cells[column] = cell(row, column);
+    return cellsText(cells.constData(), cells.size());
+}
+
 QColor Terminal::color(VTermColor color) const
 {
     vterm_screen_convert_color_to_rgb(m_screen, &color);
@@ -120,14 +164,16 @@ void Terminal::resize(int rows, int columns)
     emit sizeChanged();
 }
 
-void Terminal::write(const QByteArray &data, bool keepScrolledLines)
+void Terminal::write(const QByteArray &data, bool keepScrolledLines, int skipScrolledLines)
 {
     // Output while writing answers the server, the rest is typing
     m_writing = true;
     m_keepScrolledLines = keepScrolledLines;
+    m_skipScrolledLines = skipScrolledLines;
     vterm_input_write(m_vterm, data.constData(), data.size());
     vterm_screen_flush_damage(m_screen);
     m_keepScrolledLines = true;
+    m_skipScrolledLines = 0;
     m_writing = false;
 }
 
@@ -144,6 +190,13 @@ void Terminal::sendChar(uint ucs4, VTermModifier modifiers)
         uint c = ucs4;
         if (c >= 'a' && c <= 'z')
             c -= 'a' - 'A';
+        // The usual spellings of the ones outside @ to _
+        if (c == '/' || c == '-')
+            c = '_';
+        else if (c == '2')
+            c = '@';
+        else if (c == '6')
+            c = '^';
         if (c == ' ' || (c >= '@' && c <= '_')) {
             QByteArray bytes;
             if (modifiers & VTERM_MOD_ALT)
@@ -268,6 +321,12 @@ int Terminal::onPushLine(int columns, const VTermScreenCell *cells, void *user)
     Terminal *terminal = static_cast<Terminal *>(user);
     if (!terminal->m_keepScrolledLines)
         return 1;
+    if (terminal->m_skipScrolledLines > 0) {
+        --terminal->m_skipScrolledLines;
+        return 1;
+    }
+    if (terminal->m_reportScrolledLines)
+        emit terminal->lineScrolled(cellsText(cells, columns));
     QVector<VTermScreenCell> line(columns);
     std::memcpy(line.data(), cells, columns * sizeof(VTermScreenCell));
     terminal->m_scrollback.append(line);
@@ -380,6 +439,36 @@ void Terminal::notifyFromOsc(int command, const QByteArray &payload)
         } else {
             setActivity(QString());
         }
+        return;
+    }
+
+    // "777;longterm-ask;<title>;<label>=<keys>|...;<body>", the body may contain
+    // semicolons. Keys take \e, \r, \n, \t and \\ for the bytes they stand for.
+    if (parts.size() >= 4 && parts.at(0) == "longterm-ask") {
+        QVariantList replies;
+        for (const QByteArray &reply : parts.at(2).split('|')) {
+            const int equals = reply.indexOf('=');
+            if (equals <= 0 || replies.size() >= 4)
+                continue;
+            QByteArray keys;
+            const QByteArray escaped = reply.mid(equals + 1);
+            for (int i = 0; i < escaped.size(); ++i) {
+                if (escaped.at(i) != '\\' || i + 1 >= escaped.size()) {
+                    keys += escaped.at(i);
+                    continue;
+                }
+                const char next = escaped.at(++i);
+                keys += next == 'e' ? '\x1b' : next == 'r' ? '\r' : next == 'n' ? '\n' : next == 't' ? '\t' : next;
+            }
+            QVariantMap map;
+            map.insert(QStringLiteral("label"), QString::fromUtf8(reply.left(equals)).simplified().left(20));
+            map.insert(QStringLiteral("keys"), QString::fromUtf8(keys));
+            replies.append(map);
+        }
+        const QString title = QString::fromUtf8(parts.at(1)).trimmed();
+        const int bodyStart = parts.at(0).size() + parts.at(1).size() + parts.at(2).size() + 3;
+        const QString body = QString::fromUtf8(payload.mid(bodyStart)).trimmed();
+        emit questionAsked(title, body, replies);
         return;
     }
 

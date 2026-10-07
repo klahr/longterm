@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QSaveFile>
@@ -249,80 +250,211 @@ QString SftpEngine::uniqueLocalPath(const QString &directory, const QString &nam
     return path;
 }
 
-bool SftpEngine::startTransfer(Transfer *transfer)
+bool SftpEngine::prepareTransfer(Transfer *transfer)
 {
+    transfer->prepared = true;
     if (!open()) {
         transfer->error = m_openError;
         return false;
     }
     const SftpRequest &request = transfer->request;
-    const QByteArray path = request.path.toUtf8();
     const QString name = remoteName(request.path);
 
     if (request.type == SftpRequest::Download) {
-        transfer->file = sftp_open(m_sftp, path.constData(), O_RDONLY, 0);
+        sftp_attributes attributes = sftp_stat(m_sftp, request.path.toUtf8().constData());
+        if (!attributes) {
+            transfer->error = errorString(tr("Could not open %1").arg(name));
+            return false;
+        }
+        const bool directory = attributes->type == SSH_FILEXFER_TYPE_DIRECTORY;
+        const qint64 size = qint64(attributes->size);
+        sftp_attributes_free(attributes);
+        QString directoryPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+        QString localName = name.isEmpty() ? tr("download") : name;
+        if (!request.target.isEmpty()) {
+            directoryPath = QFileInfo(request.target).path();
+            localName = QFileInfo(request.target).fileName();
+        }
+        QDir().mkpath(directoryPath);
+        transfer->localPath = request.target.isEmpty() ? uniqueLocalPath(directoryPath, localName) : request.target;
+        if (!directory) {
+            transfer->items.append(Item { request.path, transfer->localPath });
+            transfer->total = size;
+            return true;
+        }
+        if (!QDir().mkpath(transfer->localPath)) {
+            transfer->error = tr("Could not make the folder %1").arg(transfer->localPath);
+            return false;
+        }
+        return listRemoteFolder(transfer, request.path, transfer->localPath);
+    }
+
+    const QFileInfo local(request.target);
+    transfer->localPath = request.target;
+    if (!local.isDir()) {
+        transfer->items.append(Item { request.path, request.target });
+        transfer->total = local.size();
+        return true;
+    }
+    // A folder goes in as a new folder, or into the one there when asked to replace
+    if (sftp_mkdir(m_sftp, request.path.toUtf8().constData(), 0755) != SSH_OK) {
+        sftp_attributes existing = request.overwrite ? sftp_stat(m_sftp, request.path.toUtf8().constData()) : nullptr;
+        const bool folder = existing && existing->type == SSH_FILEXFER_TYPE_DIRECTORY;
+        sftp_attributes_free(existing);
+        if (!folder) {
+            transfer->error = errorString(tr("Could not create %1").arg(name));
+            return false;
+        }
+    }
+    QDirIterator walk(request.target, QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot | QDir::Hidden,
+                      QDirIterator::Subdirectories);
+    const QDir base(request.target);
+    while (walk.hasNext() && transfer->items.size() < MaxEntries) {
+        const QString path = walk.next();
+        const QFileInfo info = walk.fileInfo();
+        if (info.isSymLink())
+            continue;
+        const QString remote = request.path + QLatin1Char('/') + base.relativeFilePath(path);
+        if (info.isDir()) {
+            // There already when a sibling's file made it, which is fine
+            sftp_mkdir(m_sftp, remote.toUtf8().constData(), 0755);
+        } else {
+            transfer->items.append(Item { remote, path });
+            transfer->total += info.size();
+        }
+    }
+    return true;
+}
+
+// Depth first, links are left out so a link to a parent cannot loop
+bool SftpEngine::listRemoteFolder(Transfer *transfer, const QString &remote, const QString &local)
+{
+    sftp_dir dir = sftp_opendir(m_sftp, remote.toUtf8().constData());
+    if (!dir) {
+        transfer->error = errorString(tr("Could not open %1").arg(remote));
+        return false;
+    }
+    QStringList folders;
+    sftp_attributes attributes;
+    while (transfer->items.size() < MaxEntries && (attributes = sftp_readdir(m_sftp, dir))) {
+        const QString name = QString::fromUtf8(attributes->name);
+        const bool directory = attributes->type == SSH_FILEXFER_TYPE_DIRECTORY;
+        const bool regular = attributes->type == SSH_FILEXFER_TYPE_REGULAR;
+        const qint64 size = qint64(attributes->size);
+        sftp_attributes_free(attributes);
+        if (name == QLatin1String(".") || name == QLatin1String("..") || name.contains(QLatin1Char('/')))
+            continue;
+        if (directory) {
+            folders.append(name);
+        } else if (regular) {
+            transfer->items.append(Item { remote + QLatin1Char('/') + name, local + QLatin1Char('/') + name });
+            transfer->total += size;
+        }
+    }
+    sftp_closedir(dir);
+    for (const QString &folder : folders) {
+        const QString localFolder = local + QLatin1Char('/') + folder;
+        if (!QDir().mkpath(localFolder)) {
+            transfer->error = tr("Could not make the folder %1").arg(localFolder);
+            return false;
+        }
+        if (!listRemoteFolder(transfer, remote + QLatin1Char('/') + folder, localFolder))
+            return false;
+    }
+    return true;
+}
+
+bool SftpEngine::openItem(Transfer *transfer)
+{
+    const Item &item = transfer->items.first();
+    const QString name = remoteName(item.remote);
+    transfer->itemBytes = 0;
+    transfer->requested = 0;
+    transfer->eof = false;
+    transfer->restart = false;
+    if (transfer->request.type == SftpRequest::Download) {
+        transfer->file = sftp_open(m_sftp, item.remote.toUtf8().constData(), O_RDONLY, 0);
         if (!transfer->file) {
             transfer->error = errorString(tr("Could not open %1").arg(name));
             return false;
         }
-        sftp_attributes attributes = sftp_fstat(transfer->file);
-        const bool directory = attributes && attributes->type == SSH_FILEXFER_TYPE_DIRECTORY;
-        if (attributes)
-            transfer->total = qint64(attributes->size);
-        sftp_attributes_free(attributes);
-        if (directory) {
-            transfer->error = tr("%1 is a folder, only files can be downloaded").arg(name);
-            return false;
-        }
-        const QString directoryPath = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
-        QDir().mkpath(directoryPath);
-        transfer->localPath = uniqueLocalPath(directoryPath, name.isEmpty() ? tr("download") : name);
-        transfer->download = new QSaveFile(transfer->localPath);
+        transfer->download = new QSaveFile(item.local);
         if (!transfer->download->open(QIODevice::WriteOnly)) {
-            transfer->error = tr("Could not save %1: %2").arg(transfer->localPath, transfer->download->errorString());
+            transfer->error = tr("Could not save %1: %2").arg(item.local, transfer->download->errorString());
             return false;
         }
     } else {
-        transfer->upload = new QFile(request.target);
+        transfer->upload = new QFile(item.local);
         if (!transfer->upload->open(QIODevice::ReadOnly)) {
-            transfer->error = tr("Could not read %1: %2").arg(request.target, transfer->upload->errorString());
+            transfer->error = tr("Could not read %1: %2").arg(item.local, transfer->upload->errorString());
             return false;
         }
-        transfer->total = transfer->upload->size();
-        const int flags = O_WRONLY | O_CREAT | (request.overwrite ? O_TRUNC : O_EXCL);
-        transfer->file = sftp_open(m_sftp, path.constData(), flags, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+        const int flags = O_WRONLY | O_CREAT | (transfer->request.overwrite ? O_TRUNC : O_EXCL);
+        transfer->file = sftp_open(m_sftp, item.remote.toUtf8().constData(), flags, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
         if (!transfer->file) {
             transfer->error = errorString(tr("Could not create %1").arg(name));
             return false;
         }
     }
     sftp_file_set_nonblocking(transfer->file);
-    transfer->progressTime.start();
-    m_callbacks.progress(request.id, 0, transfer->total);
     return true;
+}
+
+void SftpEngine::closeItem(Transfer *transfer)
+{
+    for (Read &read : transfer->pending)
+        sftp_aio_free(read.aio);
+    transfer->pending.clear();
+    const QString remote = transfer->items.isEmpty() ? QString() : transfer->items.first().remote;
+    if (transfer->file && sftp_close(transfer->file) != SSH_OK && transfer->error.isEmpty())
+        transfer->error = errorString(tr("Could not write %1").arg(remoteName(remote)));
+    const bool failed = !transfer->error.isEmpty() || transfer->cancelled;
+    // Half an upload is no use, unless it replaced a file which is gone either way
+    if (transfer->file && failed && transfer->upload && !transfer->request.overwrite && m_sftp
+            && ssh_is_connected(m_session))
+        sftp_unlink(m_sftp, remote.toUtf8().constData());
+    transfer->file = nullptr;
+    if (transfer->download) {
+        if (!failed && !transfer->download->commit())
+            transfer->error = tr("Could not save %1: %2").arg(transfer->download->fileName(),
+                                                              transfer->download->errorString());
+        else if (failed)
+            transfer->download->cancelWriting();
+        delete transfer->download;
+        transfer->download = nullptr;
+    }
+    delete transfer->upload;
+    transfer->upload = nullptr;
+    if (!transfer->items.isEmpty())
+        transfer->items.removeFirst();
 }
 
 void SftpEngine::serviceTransfer(Transfer *transfer)
 {
-    if (!transfer->file && !transfer->download && !transfer->upload && !transfer->cancelled) {
-        if (!startTransfer(transfer)) {
-            finishTransfer(transfer);
-            return;
-        }
+    if (!transfer->prepared && !transfer->cancelled && !prepareTransfer(transfer)) {
+        finishTransfer(transfer);
+        return;
+    }
+    const bool stopping = transfer->cancelled || !transfer->error.isEmpty();
+    if (!transfer->file && !stopping && !transfer->items.isEmpty() && !openItem(transfer)) {
+        finishTransfer(transfer);
+        return;
     }
     if (transfer->file) {
         if (transfer->request.type == SftpRequest::Download)
             serviceDownload(transfer);
         else
             serviceUpload(transfer);
+        const bool itemDone = transfer->eof || transfer->cancelled || !transfer->error.isEmpty();
+        if (transfer->pending.isEmpty() && itemDone)
+            closeItem(transfer);
     }
-    const bool stopping = transfer->cancelled || !transfer->error.isEmpty();
-    if (transfer->pending.isEmpty() && (transfer->eof || stopping || !transfer->file)) {
+    if (!transfer->file && (transfer->items.isEmpty() || transfer->cancelled || !transfer->error.isEmpty())) {
         finishTransfer(transfer);
         return;
     }
-    if (transfer->progressTime.hasExpired(ProgressIntervalMs)) {
-        transfer->progressTime.restart();
+    if (!transfer->progressTime.isValid() || transfer->progressTime.hasExpired(ProgressIntervalMs)) {
+        transfer->progressTime.start();
         m_callbacks.progress(transfer->request.id, transfer->bytes, transfer->total);
     }
 }
@@ -342,7 +474,7 @@ void SftpEngine::serviceDownload(Transfer *transfer)
         if (transfer->restart || transfer->cancelled || !transfer->error.isEmpty())
             continue;
         if (n < 0) {
-            transfer->error = errorString(tr("Could not read %1").arg(remoteName(transfer->request.path)));
+            transfer->error = errorString(tr("Could not read %1").arg(remoteName(transfer->items.first().remote)));
             continue;
         }
         if (n == 0) {
@@ -350,10 +482,12 @@ void SftpEngine::serviceDownload(Transfer *transfer)
             continue;
         }
         if (transfer->download->write(m_buffer.constData(), n) != n) {
-            transfer->error = tr("Could not save %1: %2").arg(transfer->localPath, transfer->download->errorString());
+            transfer->error = tr("Could not save %1: %2").arg(transfer->download->fileName(),
+                                                              transfer->download->errorString());
             continue;
         }
         transfer->bytes += n;
+        transfer->itemBytes += n;
         // A short answer leaves a gap before the next ones, so they are
         // dropped and asked again from here. At the end of the file the
         // next answer says so.
@@ -362,8 +496,8 @@ void SftpEngine::serviceDownload(Transfer *transfer)
     }
     if (transfer->restart && transfer->pending.isEmpty()) {
         transfer->restart = false;
-        transfer->requested = transfer->bytes;
-        sftp_seek64(transfer->file, quint64(transfer->bytes));
+        transfer->requested = transfer->itemBytes;
+        sftp_seek64(transfer->file, quint64(transfer->itemBytes));
     }
 
     while (!transfer->eof && !transfer->restart && !transfer->cancelled && transfer->error.isEmpty()
@@ -371,7 +505,7 @@ void SftpEngine::serviceDownload(Transfer *transfer)
         sftp_aio aio = nullptr;
         const ssize_t length = sftp_aio_begin_read(transfer->file, ChunkSize, &aio);
         if (length < 0) {
-            transfer->error = errorString(tr("Could not read %1").arg(remoteName(transfer->request.path)));
+            transfer->error = errorString(tr("Could not read %1").arg(remoteName(transfer->items.first().remote)));
             break;
         }
         transfer->pending.enqueue(Read { aio, quint32(length) });
@@ -389,10 +523,11 @@ void SftpEngine::serviceUpload(Transfer *transfer)
         transfer->pending.dequeue();
         if (n < 0) {
             if (transfer->error.isEmpty())
-                transfer->error = errorString(tr("Could not write %1").arg(remoteName(transfer->request.path)));
+                transfer->error = errorString(tr("Could not write %1").arg(remoteName(transfer->items.first().remote)));
             continue;
         }
         transfer->bytes += n;
+        transfer->itemBytes += n;
     }
 
     if (m_buffer.size() < int(ChunkSize))
@@ -401,7 +536,7 @@ void SftpEngine::serviceUpload(Transfer *transfer)
            && transfer->pending.size() < MaxInFlight) {
         const qint64 n = transfer->upload->read(m_buffer.data(), ChunkSize);
         if (n < 0) {
-            transfer->error = tr("Could not read %1: %2").arg(transfer->request.target, transfer->upload->errorString());
+            transfer->error = tr("Could not read %1: %2").arg(transfer->upload->fileName(), transfer->upload->errorString());
             break;
         }
         if (n == 0) {
@@ -411,7 +546,7 @@ void SftpEngine::serviceUpload(Transfer *transfer)
         sftp_aio aio = nullptr;
         const ssize_t taken = sftp_aio_begin_write(transfer->file, m_buffer.constData(), size_t(n), &aio);
         if (taken < 0) {
-            transfer->error = errorString(tr("Could not write %1").arg(remoteName(transfer->request.path)));
+            transfer->error = errorString(tr("Could not write %1").arg(remoteName(transfer->items.first().remote)));
             break;
         }
         // The server's limit can be below the chunk size
@@ -423,37 +558,17 @@ void SftpEngine::serviceUpload(Transfer *transfer)
 
 void SftpEngine::finishTransfer(Transfer *transfer)
 {
-    for (Read &read : transfer->pending)
-        sftp_aio_free(read.aio);
-    transfer->pending.clear();
-
+    if (transfer->file || transfer->download || transfer->upload)
+        closeItem(transfer);
     QString error = transfer->error;
     if (error.isEmpty() && transfer->cancelled)
         error = tr("Cancelled");
-    const bool created = transfer->request.type == SftpRequest::Upload && !transfer->request.overwrite;
-    if (transfer->file && sftp_close(transfer->file) != SSH_OK && error.isEmpty())
-        error = errorString(tr("Could not write %1").arg(remoteName(transfer->request.path)));
-    // Half an upload is no use, unless it replaced a file which is gone either way
-    if (transfer->file && !error.isEmpty() && created && m_sftp && ssh_is_connected(m_session))
-        sftp_unlink(m_sftp, transfer->request.path.toUtf8().constData());
-    transfer->file = nullptr;
-
-    QString localPath;
-    if (transfer->download) {
-        if (error.isEmpty() && !transfer->download->commit())
-            error = tr("Could not save %1: %2").arg(transfer->localPath, transfer->download->errorString());
-        else if (!error.isEmpty())
-            transfer->download->cancelWriting();
-        if (error.isEmpty())
-            localPath = transfer->localPath;
-        delete transfer->download;
-    }
-    delete transfer->upload;
-
     m_transfers.removeOne(transfer);
     if (error.isEmpty())
         m_callbacks.progress(transfer->request.id, transfer->bytes, qMax(transfer->total, transfer->bytes));
-    m_callbacks.transferred(transfer->request.id, localPath, error);
+    // An upload has nothing on the phone to show
+    const bool download = transfer->request.type == SftpRequest::Download;
+    m_callbacks.transferred(transfer->request.id, error.isEmpty() && download ? transfer->localPath : QString(), error);
     delete transfer;
 }
 

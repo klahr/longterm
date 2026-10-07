@@ -3,7 +3,7 @@
 # Usage: claude.sh <prompt|tool|tool-done|notification|stop|end>, the hook's JSON on stdin
 status() { sh "$(dirname "$0")/../bin/longterm-status" "$@"; }
 # longterm-status finds the terminal, inside tmux as well
-[ -w "$SSH_TTY" ] || [ -n "$TMUX" ] || exit 0
+[ -w "$SSH_TTY" ] || [ -n "$TMUX" ] || [ -n "$LONGTERM_STATUS_FILE" ] || exit 0
 
 # What a tool call is about to do, in a few words
 describe_tool() {
@@ -38,10 +38,13 @@ case "$1" in
     notification)
         input=$(cat)
         # Only a question needs an answer, the idle reminder after a finished turn does not
+        message=$(printf '%s' "$input" | jq -r '.message // empty')
         case "$(printf '%s' "$input" | jq -r '.notification_type // empty')" in
-            permission_prompt|elicitation_dialog) status waiting ;;
+            # The first choice of a permission prompt allows it, Esc refuses
+            permission_prompt) status waiting; status ask Claude "$message" 'Yes=1' 'No=\e' ;;
+            elicitation_dialog) status waiting; status notify Claude "$message" ;;
+            *) status notify Claude "$message" ;;
         esac
-        status notify Claude "$(printf '%s' "$input" | jq -r '.message // empty')"
         ;;
     stop) status done; status notify Claude Done ;;
     end) status clear ;;

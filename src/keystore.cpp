@@ -136,6 +136,7 @@ QVariant KeyStore::data(const QModelIndex &index, int role) const
     case PublicKeyRole: return key.publicKey;
     case FingerprintRole: return key.fingerprint;
     case EncryptedRole: return key.encrypted;
+    case CertificateRole: return key.certificate;
     default: return QVariant();
     }
 }
@@ -376,6 +377,90 @@ void KeyStore::exportPrivateKey(const QString &keyId, const QString &passphrase)
     });
 }
 
+QString KeyStore::setCertificate(const QString &keyId, const QString &certificate)
+{
+    const QString problem = checkCertificate(keyId, certificate);
+    if (!problem.isEmpty())
+        return problem;
+    const int row = indexOf(keyId);
+    m_keys[row].certificate = certificate.simplified();
+    saveIndex();
+    emit dataChanged(index(row), index(row), { CertificateRole });
+    return QString();
+}
+
+QString KeyStore::checkCertificate(const QString &keyId, const QString &certificate) const
+{
+    const int row = indexOf(keyId);
+    if (row < 0)
+        return tr("The key is gone");
+    const QString text = certificate.simplified();
+    if (!text.isEmpty()) {
+        const QStringList fields = text.split(QLatin1Char(' '));
+        const QStringList keyFields = m_keys.at(row).publicKey.split(QLatin1Char(' '));
+        ssh_key cert = nullptr;
+        ssh_key publicKey = nullptr;
+        const bool parsed = fields.size() >= 2 && fields.at(0).contains(QLatin1String("-cert-v01@openssh.com"))
+                && ssh_pki_import_cert_base64(fields.at(1).toLatin1().constData(),
+                                              ssh_key_type_from_name(fields.at(0).toLatin1().constData()), &cert) == SSH_OK;
+        // A certificate for some other key would never log in
+        const bool matches = parsed && keyFields.size() >= 2
+                && ssh_pki_import_pubkey_base64(keyFields.at(1).toLatin1().constData(),
+                                                ssh_key_type_from_name(keyFields.at(0).toLatin1().constData()),
+                                                &publicKey) == SSH_OK
+                && ssh_key_cmp(cert, publicKey, SSH_KEY_CMP_PUBLIC) == 0;
+        ssh_key_free(cert);
+        ssh_key_free(publicKey);
+        if (!parsed)
+            return tr("This is not an OpenSSH certificate, it is the line in the -cert.pub file");
+        if (!matches)
+            return tr("The certificate is for another key");
+    }
+    return QString();
+}
+
+QVariantList KeyStore::exportKeys() const
+{
+    QVariantList list;
+    for (const Key &key : m_keys) {
+        QVariantMap map;
+        map.insert(QStringLiteral("id"), key.id);
+        map.insert(QStringLiteral("name"), key.name);
+        map.insert(QStringLiteral("publicKey"), key.publicKey);
+        map.insert(QStringLiteral("fingerprint"), key.fingerprint);
+        map.insert(QStringLiteral("encrypted"), key.encrypted);
+        map.insert(QStringLiteral("certificate"), key.certificate);
+        list.append(map);
+    }
+    return list;
+}
+
+void KeyStore::restoreKey(const QVariantMap &map, const QByteArray &privateKey)
+{
+    Key key;
+    key.id = map.value(QStringLiteral("id")).toString();
+    key.name = map.value(QStringLiteral("name")).toString();
+    key.publicKey = map.value(QStringLiteral("publicKey")).toString();
+    key.fingerprint = map.value(QStringLiteral("fingerprint")).toString();
+    key.encrypted = map.value(QStringLiteral("encrypted")).toBool();
+    key.certificate = map.value(QStringLiteral("certificate")).toString();
+    if (key.id.isEmpty() || privateKey.isEmpty() || indexOf(key.id) >= 0 || m_keys.size() >= MaxKeys)
+        return;
+    storeKey(key, privateKey);
+}
+
+QByteArray KeyStore::certificate(const QString &keyId) const
+{
+    const int row = indexOf(keyId);
+    return row < 0 ? QByteArray() : m_keys.at(row).certificate.toLatin1();
+}
+
+QString KeyStore::publicKey(const QString &keyId) const
+{
+    const int row = indexOf(keyId);
+    return row < 0 ? QString() : m_keys.at(row).publicKey;
+}
+
 void KeyStore::loadIndex()
 {
     const int size = qMin(m_index.beginReadArray(QStringLiteral("keys")), MaxKeys);
@@ -387,6 +472,7 @@ void KeyStore::loadIndex()
         key.publicKey = m_index.value(QStringLiteral("publicKey")).toString();
         key.fingerprint = m_index.value(QStringLiteral("fingerprint")).toString();
         key.encrypted = m_index.value(QStringLiteral("encrypted"), false).toBool();
+        key.certificate = m_index.value(QStringLiteral("certificate")).toString();
         if (key.id.isEmpty() || indexOf(key.id) >= 0)
             continue;
         m_keys.append(key);
@@ -405,6 +491,7 @@ void KeyStore::saveIndex()
         m_index.setValue(QStringLiteral("publicKey"), m_keys.at(i).publicKey);
         m_index.setValue(QStringLiteral("fingerprint"), m_keys.at(i).fingerprint);
         m_index.setValue(QStringLiteral("encrypted"), m_keys.at(i).encrypted);
+        m_index.setValue(QStringLiteral("certificate"), m_keys.at(i).certificate);
     }
     m_index.endArray();
     m_index.sync();

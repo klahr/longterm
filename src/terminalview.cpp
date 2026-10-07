@@ -2,7 +2,9 @@
 
 #include "colorschemes.h"
 
+#include <QClipboard>
 #include <QFontMetricsF>
+#include <QGuiApplication>
 #include <QInputMethodEvent>
 #include <QKeyEvent>
 #include <QPainter>
@@ -102,6 +104,8 @@ TerminalView::TerminalView(QQuickItem *parent)
     , m_scrollOffset(0)
     , m_ctrlLatched(false)
     , m_altLatched(false)
+    , m_ctrlLocked(false)
+    , m_altLocked(false)
     , m_selectionColor(255, 255, 255, 90)
     , m_hasSelection(false)
     , m_anchorLine(0)
@@ -199,6 +203,22 @@ void TerminalView::setAltLatched(bool latched)
     if (m_altLatched == latched)
         return;
     m_altLatched = latched;
+    emit latchedChanged();
+}
+
+void TerminalView::setCtrlLocked(bool locked)
+{
+    if (m_ctrlLocked == locked)
+        return;
+    m_ctrlLocked = locked;
+    emit latchedChanged();
+}
+
+void TerminalView::setAltLocked(bool locked)
+{
+    if (m_altLocked == locked)
+        return;
+    m_altLocked = locked;
     emit latchedChanged();
 }
 
@@ -535,7 +555,25 @@ void TerminalView::paint(QPainter *painter)
         }
     }
 
-    const VTermPos cursor = m_terminal->cursorPosition();
+    VTermPos cursor = m_terminal->cursorPosition();
+    // Typing the server has not echoed yet, underlined until it does
+    const QString prediction = m_terminal->prediction();
+    const int predictionRow = m_terminal->predictionRow() + m_scrollOffset;
+    if (m_terminal->predictionRow() >= 0 && predictionRow < rows && !m_preview) {
+        const VTermScreenCell blank = m_terminal->blankCell();
+        const qreal x = m_terminal->predictionColumn() * m_cellWidth;
+        const qreal y = predictionRow * m_cellHeight;
+        painter->fillRect(QRectF(x, y, prediction.size() * m_cellWidth, m_cellHeight), m_terminal->color(blank.bg));
+        QFont font = m_font;
+        font.setUnderline(true);
+        painter->setFont(font);
+        painter->setPen(m_terminal->color(blank.fg));
+        for (int i = 0; i < prediction.size(); ++i)
+            painter->drawText(QPointF(x + i * m_cellWidth, y + m_ascent), QString(prediction.at(i)));
+        cursor.row = m_terminal->predictionRow();
+        cursor.col = m_terminal->predictionColumn() + prediction.size();
+    }
+
     const int cursorRow = cursor.row + m_scrollOffset;
     if (m_terminal->cursorVisible() && cursorRow < rows) {
         painter->fillRect(QRectF(cursor.col * m_cellWidth, cursorRow * m_cellHeight,
@@ -579,16 +617,71 @@ void TerminalView::keyPressEvent(QKeyEvent *event)
         event->ignore();
         return;
     }
+    // Ctrl+Shift is left to the app, as in desktop terminals
+    const Qt::KeyboardModifiers held = event->modifiers() & (Qt::ControlModifier | Qt::ShiftModifier | Qt::AltModifier);
+    if (held == (Qt::ControlModifier | Qt::ShiftModifier)) {
+        switch (event->key()) {
+        case Qt::Key_C:
+            if (m_hasSelection)
+                QGuiApplication::clipboard()->setText(selectedText());
+            event->accept();
+            return;
+        case Qt::Key_V:
+            paste(QGuiApplication::clipboard()->text());
+            event->accept();
+            return;
+        case Qt::Key_T:
+            emit shortcut(QStringLiteral("new"));
+            event->accept();
+            return;
+        case Qt::Key_F:
+            emit shortcut(QStringLiteral("find"));
+            event->accept();
+            return;
+        case Qt::Key_M:
+            emit shortcut(QStringLiteral("menu"));
+            event->accept();
+            return;
+        case Qt::Key_Backtab:
+            emit shortcut(QStringLiteral("previous"));
+            event->accept();
+            return;
+        default:
+            break;
+        }
+    }
+    if (held == Qt::ControlModifier && (event->key() == Qt::Key_Tab || event->key() == Qt::Key_PageDown)) {
+        emit shortcut(QStringLiteral("next"));
+        event->accept();
+        return;
+    }
+    if (held == Qt::ControlModifier && event->key() == Qt::Key_PageUp) {
+        emit shortcut(QStringLiteral("previous"));
+        event->accept();
+        return;
+    }
+
     clearSelection();
     setScrollOffset(0);
 
-    const VTermModifier modifiers = takeModifiers(event->modifiers());
+    // The Meta (Super) key works as Alt, many keyboards have no right Alt
+    Qt::KeyboardModifiers eventModifiers = event->modifiers();
+    if (eventModifiers & Qt::MetaModifier)
+        eventModifiers |= Qt::AltModifier;
+    const VTermModifier modifiers = takeModifiers(eventModifiers);
     const VTermKey key = toVTermKey(event->key());
     if (key != VTERM_KEY_NONE) {
         m_terminal->sendKey(key, modifiers);
     } else if ((modifiers & VTERM_MOD_CTRL) && event->key() >= Qt::Key_A && event->key() <= Qt::Key_Z) {
         // With Ctrl held, text() is already a control character
         m_terminal->sendChar('a' + (event->key() - Qt::Key_A), modifiers);
+    } else if ((modifiers & VTERM_MOD_CTRL) && event->key() >= Qt::Key_Space && event->key() <= Qt::Key_AsciiTilde) {
+        // Ctrl with [ \ ] and the like, which the key code says better than text()
+        m_terminal->sendChar(uint(event->key()), modifiers);
+    } else if ((modifiers & VTERM_MOD_ALT) && event->key() >= Qt::Key_Space && event->key() <= Qt::Key_AsciiTilde
+               && (event->text().isEmpty() || event->text().at(0).unicode() > 0x7e)) {
+        // Alt on some layouts types a special character instead
+        sendCharacters(QString(QChar(event->key())).toLower(), modifiers);
     } else if (!event->text().isEmpty()) {
         sendCharacters(event->text(), modifiers);
     } else {
@@ -631,9 +724,9 @@ VTermModifier TerminalView::takeModifiers(Qt::KeyboardModifiers modifiers)
     int result = VTERM_MOD_NONE;
     if (modifiers & Qt::ShiftModifier)
         result |= VTERM_MOD_SHIFT;
-    if ((modifiers & Qt::ControlModifier) || m_ctrlLatched)
+    if ((modifiers & Qt::ControlModifier) || m_ctrlLatched || m_ctrlLocked)
         result |= VTERM_MOD_CTRL;
-    if ((modifiers & Qt::AltModifier) || m_altLatched)
+    if ((modifiers & Qt::AltModifier) || m_altLatched || m_altLocked)
         result |= VTERM_MOD_ALT;
     setCtrlLatched(false);
     setAltLatched(false);

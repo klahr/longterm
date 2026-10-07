@@ -1,14 +1,22 @@
 #!/bin/sh
 # Reports what a coding agent is doing to Longterm, the SSH terminal for Sailfish OS, through the
-# terminal of the SSH login. Does nothing outside SSH.
+# terminal of the SSH login, or under mosh through a file Longterm follows. Does nothing
+# outside Longterm's connections.
 #
 # Usage: longterm-status working|waiting|done [detail]   colours the session, "Reading foo.c"
 #        longterm-status clear                           back to the plain connection state
 #        longterm-status notify <title> <body>           a notification on the phone
+#        longterm-status ask <title> <body> <label=keys>...
+#                                                        a notification with buttons that type the
+#                                                        keys, \e is Esc and \r is Enter
 tty=$SSH_TTY
+# Under mosh there is no terminal of the login, and mosh-server would drop the
+# escape sequences anyway. Longterm follows a file instead, named by the
+# LONGTERM_STATUS_FILE it gives the shell.
+file=$LONGTERM_STATUS_FILE
 # Inside tmux $SSH_TTY is the login that started it, which may be long gone. The client
 # attached now is the one to tell, if it came in over SSH. Without /proc to tell, as on
-# macOS, it stays $SSH_TTY.
+# macOS, it stays $SSH_TTY. A client under mosh has the file in the tmux session.
 if [ -n "$TMUX" ]; then
     client=$(tmux display-message -p '#{client_pid} #{client_tty}' 2>/dev/null)
     environ="/proc/${client%% *}/environ"
@@ -16,17 +24,43 @@ if [ -n "$TMUX" ]; then
         tty=
         tr '\000' '\n' < "$environ" | grep -q '^SSH_TTY=' && tty=${client#* }
     fi
+    if [ -n "$tty" ]; then
+        file=
+    else
+        # The tmux session's says where its client is now, the shell's own where it was started
+        session_file=$(tmux show-environment LONGTERM_STATUS_FILE 2>/dev/null)
+        case "$session_file" in LONGTERM_STATUS_FILE=*) file=${session_file#LONGTERM_STATUS_FILE=} ;; esac
+    fi
 fi
-[ -n "$tty" ] && [ -w "$tty" ] || exit 0
+if [ -n "$file" ] && [ -w "$file" ]; then
+    tty=
+else
+    file=
+    [ -n "$tty" ] && [ -w "$tty" ] || exit 0
+fi
+
+# A message as OSC 777 carries it, to the terminal or as a line of the file
+send() {
+    if [ -n "$file" ]; then
+        printf '777;%s\n' "$1" >> "$file"
+    else
+        printf '\033]777;%s\007' "$1" >> "$tty"
+    fi
+}
 
 # Control characters would end the escape sequence early, Longterm cuts what is too long
 clean() { printf '%s' "$1" | tr '\n\t' '  ' | tr -d '\000-\037\177' | cut -c1-1000; }
 
 case "$1" in
-    working|waiting|done) printf '\033]777;longterm-status;%s;%s\007' "$1" "$(clean "$2")" >> "$tty" ;;
-    clear) printf '\033]777;longterm-status;none\007' >> "$tty" ;;
+    working|waiting|done) send "longterm-status;$1;$(clean "$2")" ;;
+    clear) send "longterm-status;none" ;;
     # The title ends at the first semicolon, the body may have them
-    notify) printf '\033]777;notify;%s;%s\007' "$(clean "$2" | tr -d ';')" "$(clean "$3")" >> "$tty" ;;
-    *) echo "usage: longterm-status working|waiting|done [detail] | clear | notify <title> <body>" >&2; exit 1 ;;
+    notify) send "notify;$(clean "$2" | tr -d ';');$(clean "$3")" ;;
+    ask)
+        title=$(clean "$2" | tr -d ';'); body=$(clean "$3"); shift 3
+        # Replies are joined with |, which like ; cannot be in them
+        replies=$(for reply in "$@"; do printf '%s|' "$(clean "$reply" | tr -d ';|')"; done)
+        send "longterm-ask;$title;${replies%|};$body" ;;
+    *) echo "usage: longterm-status working|waiting|done [detail] | clear | notify <title> <body> | ask <title> <body> <label=keys>..." >&2; exit 1 ;;
 esac
 exit 0

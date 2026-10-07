@@ -6,13 +6,15 @@ import "../components"
 CoverBackground {
     id: cover
 
-    readonly property int maxVisible: Math.max(1, Math.floor((height - header.height - 2 * Theme.paddingLarge)
+    readonly property int maxVisible: Math.max(1, Math.floor((height - header.height - 2 * Theme.paddingLarge
+                                                              - (sessionManager.workingCount + sessionManager.waitingCount
+                                                                 + sessionManager.doneCount > 0 ? Theme.fontSizeSmall : 0))
                                                              / (Theme.fontSizeSmall + Theme.paddingMedium)) - 1)
 
     Column {
         anchors.centerIn: parent
         width: parent.width - 2 * Theme.paddingLarge
-        visible: sessionManager.count === 0
+        visible: sessionManager.count === 0 || appSettings.locked
         spacing: Theme.paddingSmall
 
         Label {
@@ -25,7 +27,7 @@ CoverBackground {
             width: parent.width
             horizontalAlignment: Text.AlignHCenter
             wrapMode: Text.Wrap
-            text: qsTr("No connections")
+            text: appSettings.locked ? qsTr("Locked") : qsTr("No connections")
             font.pixelSize: Theme.fontSizeSmall
             color: Theme.secondaryColor
         }
@@ -35,7 +37,7 @@ CoverBackground {
         x: Theme.paddingLarge
         y: Theme.paddingLarge
         width: parent.width - 2 * Theme.paddingLarge
-        visible: sessionManager.count > 0
+        visible: sessionManager.count > 0 && !appSettings.locked
         spacing: Theme.paddingMedium
 
         Label {
@@ -45,6 +47,11 @@ CoverBackground {
                                              : qsTr("%1 connections").arg(sessionManager.count)
             truncationMode: TruncationMode.Fade
             color: Theme.highlightColor
+        }
+
+        AgentSummary {
+            width: parent.width
+            font.pixelSize: Theme.fontSizeExtraSmall
         }
 
         Repeater {

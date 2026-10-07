@@ -1,7 +1,9 @@
 // Talks to a real mosh-server, which has to be installed, through a relay
 // that drops, delays and reorders datagrams. The arguments are the share of
 // datagrams dropped, in percent, and a seed for which ones.
+#include <QDir>
 #include <QElapsedTimer>
+#include <QFile>
 #include <QGuiApplication>
 #include <QProcess>
 #include <QStringList>
@@ -177,7 +179,8 @@ private:
 
 struct Session {
     Terminal terminal;
-    MoshClient client;
+    MoshClient *client = new MoshClient;
+    QByteArray key;
     Relay *relay = nullptr;
     int replaced = 0;
 
@@ -190,22 +193,24 @@ struct Session {
             if (done())
                 return true;
             QVector<pollfd> fds;
-            const QVector<int> clientFds = client.fds();
+            const QVector<int> clientFds = client->fds();
             for (int fd : clientFds)
                 fds.append(pollfd { fd, POLLIN, 0 });
             relay->addFds(&fds);
-            const int timeout = qMin(qMin(client.waitTime(), relay->waitTime()), 50);
+            const int timeout = qMin(qMin(client->waitTime(), relay->waitTime()), 50);
             poll(fds.data(), nfds_t(fds.size()), timeout);
             relay->service();
             for (int i = 0; i < clientFds.size(); ++i) {
                 if (fds.at(i).revents & POLLIN)
-                    client.readable(clientFds.at(i));
+                    client->readable(clientFds.at(i));
             }
-            client.tick();
-            for (const MoshClient::Output &output : client.takeOutput()) {
-                if (output.replace)
+            client->tick();
+            for (const MoshClient::Output &output : client->takeOutput()) {
+                if (output.replace) {
                     ++replaced;
-                terminal.write(output.bytes);
+                    terminal.write(output.screen, false);
+                }
+                terminal.write(output.bytes, true, output.skipLines);
             }
         }
         return done();
@@ -264,10 +269,11 @@ static bool connectSession(Session *session, int drop, quint32 seed)
     if (!startServer(&port, &key))
         return false;
     session->relay = new Relay(port, drop, seed);
+    session->key = key;
     session->terminal.resize(24, 80);
     const sockaddr_in address = session->relay->address();
-    if (!session->client.start(reinterpret_cast<const sockaddr *>(&address), sizeof(address), key, 80, 24)) {
-        std::printf("start failed: %s\n", qPrintable(session->client.errorString()));
+    if (!session->client->start(reinterpret_cast<const sockaddr *>(&address), sizeof(address), key, 80, 24)) {
+        std::printf("start failed: %s\n", qPrintable(session->client->errorString()));
         return false;
     }
     return true;
@@ -275,7 +281,7 @@ static bool connectSession(Session *session, int drop, quint32 seed)
 
 static void typeLine(Session *session, const QByteArray &line)
 {
-    session->client.write(line + '\r');
+    session->client->write(line + '\r');
 }
 
 int main(int argc, char **argv)
@@ -289,7 +295,7 @@ int main(int argc, char **argv)
         CHECK(connectSession(&session, 0, seed), "could not start mosh-server");
         CHECK(session.runUntil([&]() { return session.lastLine().startsWith(QLatin1String("ready$")); }, 10000),
               "no prompt: %s", qPrintable(screen(session.terminal).join(QLatin1Char('|'))));
-        CHECK(session.client.everHeard(), "never heard from the server");
+        CHECK(session.client->everHeard(), "never heard from the server");
 
         typeLine(&session, "echo hel''lo; stty size");
         CHECK(session.runUntil([&]() { return session.screenContains(QStringLiteral("24 80")); }, 10000),
@@ -297,7 +303,7 @@ int main(int argc, char **argv)
         CHECK(session.screenContains(QStringLiteral("hello")), "no echo output");
 
         session.terminal.resize(20, 60);
-        session.client.resize(60, 20);
+        session.client->resize(60, 20);
         typeLine(&session, "stty size");
         CHECK(session.runUntil([&]() { return session.screenContains(QStringLiteral("20 60")); }, 10000),
               "resize not seen: %s", qPrintable(screen(session.terminal).join(QLatin1Char('|'))));
@@ -313,6 +319,30 @@ int main(int argc, char **argv)
               "screen is wrong: %s", qPrintable(lines.join(QLatin1Char('|'))));
         std::printf("screen replaced %d times at %d%% loss\n", session.replaced, drop);
 
+
+        // Output slow enough to scroll from one screen to the next goes into the
+        // scrollback. mosh sends screens, so a line that scrolled past between
+        // two can be missing, but none may come twice or out of order.
+        session.terminal.write("\033[3J");
+        typeLine(&session, "i=1000; while [ $i -lt 1150 ]; do echo $i; i=$((i+1)); sleep 0.02; done; echo fini''shed");
+        CHECK(session.runUntil([&]() { return session.screenContains(QStringLiteral("finished"))
+                                                      && session.lastLine().startsWith(QLatin1String("ready$")); }, 60000),
+              "slow output did not arrive: %s", qPrintable(screen(session.terminal).join(QLatin1Char('|'))));
+        int previous = 0;
+        int counted = 0;
+        for (int row = -session.terminal.scrollbackLines(); row < session.terminal.rows(); ++row) {
+            bool number = false;
+            const int value = session.terminal.text(row).toInt(&number);
+            if (!number || value < 1000 || value >= 1150)
+                continue;
+            CHECK(value > previous, "scrollback has %d after %d", value, previous);
+            previous = value;
+            ++counted;
+        }
+        std::printf("%d of 150 lines kept\n", counted);
+        // Lost screens take lines with them, without loss there are none
+        CHECK(drop > 0 ? counted >= 20 : counted == 150, "only %d of 150 lines kept", counted);
+
         // Typing while lossy, every key arrives once and in order
         typeLine(&session, "echo a1b2c3d4e5f6g7h8i9");
         CHECK(session.runUntil([&]() { return session.screenContains(QStringLiteral("\na1b2c3d4e5f6g7h8i9").mid(1))
@@ -321,15 +351,54 @@ int main(int argc, char **argv)
 
         // A new socket, as after a network change
         session.relay->setDrop(0);
-        session.client.roam();
+        session.client->roam();
         typeLine(&session, "echo ro''amed");
         CHECK(session.runUntil([&]() { return session.screenContains(QStringLiteral("roamed")); }, 15000),
               "no output after roaming: %s", qPrintable(screen(session.terminal).join(QLatin1Char('|'))));
 
         // The shell exits, so the server ends the session
         typeLine(&session, "exit");
-        CHECK(session.runUntil([&]() { return session.client.finished(); }, 15000), "server did not end the session");
-        CHECK(session.client.errorString().isEmpty(), "error: %s", qPrintable(session.client.errorString()));
+        CHECK(session.runUntil([&]() { return session.client->finished(); }, 15000), "server did not end the session");
+        CHECK(session.client->errorString().isEmpty(), "error: %s", qPrintable(session.client->errorString()));
+        delete session.relay;
+    }
+
+    {
+        // The app goes away without a word to the server, then picks the
+        // session up from its journal while packets go missing
+        Session session;
+        CHECK(connectSession(&session, 0, seed + 10), "could not start mosh-server");
+        const QString journal = QDir::tempPath() + QStringLiteral("/moshtest-%1.journal").arg(seed);
+        CHECK(session.client->setJournal(journal), "no journal");
+        session.client->setJournalNote("the note");
+        CHECK(session.runUntil([&]() { return session.lastLine().startsWith(QLatin1String("ready$")); }, 10000), "no prompt");
+        session.relay->setDrop(drop);
+        typeLine(&session, "echo before-re''start; seq 1 2000; echo mid''way");
+        session.runUntil([]() { return false; }, 700);
+        delete session.client;
+        session.client = new MoshClient;
+        session.terminal.write("\033[H\033[2Jgarbage");
+        CHECK(session.client->resume(journal, session.key, 80, 24), "resume: %s", qPrintable(session.client->errorString()));
+        CHECK(session.client->journalNote() == "the note", "note lost");
+        CHECK(session.runUntil([&]() { return session.screenContains(QStringLiteral("midway"))
+                                                      && session.lastLine().startsWith(QLatin1String("ready$")); }, 60000),
+              "no output after resuming: %s", qPrintable(screen(session.terminal).join(QLatin1Char('|'))));
+        CHECK(!session.screenContains(QStringLiteral("garbage")), "screen not restored");
+        typeLine(&session, "echo after-re''start");
+        CHECK(session.runUntil([&]() { return session.screenContains(QStringLiteral("after-restart")); }, 30000),
+              "typing lost after resuming: %s", qPrintable(screen(session.terminal).join(QLatin1Char('|'))));
+
+        // Twice, the second time from the journal the resumed client kept
+        delete session.client;
+        session.client = new MoshClient;
+        CHECK(session.client->resume(journal, session.key, 80, 24), "second resume: %s", qPrintable(session.client->errorString()));
+        typeLine(&session, "echo again-re''stored");
+        CHECK(session.runUntil([&]() { return session.screenContains(QStringLiteral("again-restored")); }, 30000),
+              "typing lost after the second resume: %s", qPrintable(screen(session.terminal).join(QLatin1Char('|'))));
+        session.relay->setDrop(0);
+        typeLine(&session, "exit");
+        CHECK(session.runUntil([&]() { return session.client->finished(); }, 15000), "resumed session did not end");
+        QFile::remove(journal);
         delete session.relay;
     }
 
@@ -338,8 +407,8 @@ int main(int argc, char **argv)
         Session session;
         CHECK(connectSession(&session, 0, 2), "could not start mosh-server");
         CHECK(session.runUntil([&]() { return session.lastLine().startsWith(QLatin1String("ready$")); }, 10000), "no prompt");
-        session.client.shutdown();
-        CHECK(session.runUntil([&]() { return session.client.finished(); }, 15000), "shutdown not acknowledged");
+        session.client->shutdown();
+        CHECK(session.runUntil([&]() { return session.client->finished(); }, 15000), "shutdown not acknowledged");
         delete session.relay;
     }
 
@@ -352,9 +421,9 @@ int main(int argc, char **argv)
         session.relay = new Relay(port, 0, 3);
         const sockaddr_in address = session.relay->address();
         key[0] = key.at(0) == 'A' ? 'B' : 'A';
-        CHECK(session.client.start(reinterpret_cast<const sockaddr *>(&address), sizeof(address), key, 80, 24), "start");
+        CHECK(session.client->start(reinterpret_cast<const sockaddr *>(&address), sizeof(address), key, 80, 24), "start");
         session.runUntil([]() { return false; }, 2000);
-        CHECK(!session.client.everHeard(), "heard with a wrong key");
+        CHECK(!session.client->everHeard(), "heard with a wrong key");
         delete session.relay;
         std::system("pkill -f 'mosh-server new' >/dev/null 2>&1");
     }

@@ -2,6 +2,8 @@
 
 #include <QAtomicInt>
 #include <QByteArray>
+#include <QDate>
+#include <QDateTime>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -13,6 +15,7 @@
 #include <QSaveFile>
 #include <QStandardPaths>
 #include <QThread>
+#include <QUuid>
 #include <QVector>
 #include <QWaitCondition>
 
@@ -65,8 +68,16 @@ static const int MoshShutdownMs = 1500;
 // Silence after which the session shows how long the server has been quiet
 static const int MoshSilenceMs = 5 * 1000;
 static const int MoshNothingHeardMs = 10 * 1000;
+// A resumed session that is still there answers within moments
+static const int MoshResumeTimeoutMs = 15 * 1000;
 // The largest SOCKS request, a domain name of 255 bytes
 static const int MaxSocksRequest = 512;
+// How long a notice shows, and how long until the SSH connection under mosh is tried again
+static const int NoticeMs = 6000;
+static const int SideRetryMs = 30 * 1000;
+static const int SideFirstTryMs = 3000;
+// Typing shown ahead that the server has not confirmed by then is likely not coming
+static const int MaxPredictionAgeMs = 5000;
 static const char SystemProbeCommand[] = "uname -sr; cat /etc/os-release";
 static const int SystemProbeTimeoutMs = 10 * 1000;
 static const int MaxSystemProbeOutput = 16 * 1024;
@@ -273,6 +284,22 @@ public:
         QList<int> socksPorts;
         QList<QPair<QByteArray, QByteArray> > environment;
         QByteArray tmuxSession;
+        QByteArray moshServer;
+        // Runs this instead of a shell, empty for a shell
+        QByteArray command;
+        // An OpenSSH certificate for the key, "type base64 comment"
+        QByteArray certificate;
+        // Names the file programs report their status to under mosh, which
+        // drops their escape sequences, empty for none
+        QByteArray statusFile;
+        // Only files, forwards and the status file, the terminal is elsewhere
+        bool sideOnly = false;
+        // Fails rather than asking, for connections the user did not start
+        bool noPrompts = false;
+        // Where a mosh session keeps what it needs to be picked up again after a restart
+        QString journalPath;
+        // Picks the mosh session of the journal up instead of connecting anew
+        QByteArray resumeKey;
         int connectTimeout;
         int keepAliveInterval;
         bool mosh;
@@ -293,10 +320,15 @@ public:
         , m_jumpProxy(nullptr)
         , m_systemProbe(nullptr)
         , m_sftp(nullptr)
+        , m_statusChannel(nullptr)
         , m_mosh(nullptr)
         , m_moshSilence(0)
         , m_moshPort(0)
         , m_moshNothingHeardReported(false)
+        , m_moshResumed(false)
+        , m_moshGone(false)
+        , m_moshEchoed(0)
+        , m_keepMosh(0)
     {
         std::memset(&m_callbacks, 0, sizeof(m_callbacks));
         // Lets other threads wake the worker out of poll()
@@ -361,8 +393,10 @@ public:
         m_promptCondition.wakeAll();
     }
 
-    void stop()
+    // keepMosh leaves a mosh session running on the server, to be resumed after a restart
+    void stop(bool keepMosh = false)
     {
+        m_keepMosh.storeRelease(keepMosh ? 1 : 0);
         m_stop.storeRelease(1);
         wake();
         {
@@ -389,19 +423,28 @@ signals:
     void info(const QString &message);
     // network is set when the connection failed or dropped, as opposed to being refused
     void failed(const QString &message, bool network);
-    void shellExited();
+    // status is the shell's or command's exit status, -1 when unknown
+    void shellExited(int status);
     void hostKeyChanged(const QString &fingerprint, const QString &knownHostsPattern);
     // canRemember is set when the answer is the account password
     void promptRequested(const QString &text, bool echo, bool canRemember, const QString &label);
     void systemDetected(const QString &id, const QString &name, bool certain);
     // The terminal goes over mosh from here on
     void moshStarted();
-    // Screen updates from mosh, replace starts the terminal over from them
-    void moshData(const QByteArray &data, bool replace);
+    // Screen updates from mosh, see MoshClient::Output
+    void moshData(const QByteArray &screen, const QByteArray &data, int skipLines);
     // Seconds the mosh server has been quiet for, 0 once it is heard again
     void moshSilence(int seconds);
     // The SSH connection under a mosh session closed, with it files and forwards
     void sshClosed();
+    // The key of a new mosh session, to keep for resuming it
+    void moshKey(const QByteArray &key);
+    // The mosh session to resume was not there any more
+    void moshGone();
+    // How many typed bytes the mosh server has echoed, and the round trip in milliseconds
+    void moshEcho(qint64 echoedBytes, int roundTrip);
+    // A line a program wrote to the status file, "777;longterm-status;working" and the like
+    void statusLine(const QByteArray &line);
     void sftpListed(int id, const QString &path, const QVariantList &entries, const QString &error);
     void sftpDone(int id, const QString &error);
     void sftpProgress(int id, qint64 bytes, qint64 total);
@@ -417,7 +460,12 @@ protected:
         }
         ssh_channel channel = nullptr;
 
-        if (openShell(session, &channel)) {
+        if (!m_config.resumeKey.isEmpty()) {
+            if (resumeMosh()) {
+                emit connected(QString());
+                readLoop(session, &channel, false);
+            }
+        } else if (openShell(session, &channel)) {
             emit connected(m_localAddress);
             startSystemProbe(session);
             listenForForwards();
@@ -731,10 +779,20 @@ private:
             ssh_set_callbacks(session, &m_callbacks);
         }
 
+        if (m_config.sideOnly) {
+            startStatusChannel(session);
+            return true;
+        }
         if (!openSessionChannel(session, channelOut, false))
             return false;
-        if (m_config.mosh)
-            return startMosh(session, channelOut);
+        if (m_config.mosh) {
+            if (!startMosh(session, channelOut))
+                return false;
+            // Only when mosh-server ran, the fallback shell has its terminal for that
+            if (m_mosh)
+                startStatusChannel(session);
+            return true;
+        }
         return startShell(session, *channelOut);
     }
 
@@ -768,7 +826,10 @@ private:
         }
         if (ssh_channel_request_pty_size(channel, "xterm-256color", columns, rows) != SSH_OK)
             return fail(session, tr("Could not allocate a terminal"), false);
-        if (!m_config.tmuxSession.isEmpty()) {
+        if (!m_config.command.isEmpty()) {
+            if (ssh_channel_request_exec(channel, m_config.command.constData()) != SSH_OK)
+                return fail(session, tr("Could not run the command"), false);
+        } else if (!m_config.tmuxSession.isEmpty()) {
             if (ssh_channel_request_exec(channel, tmuxCommand(m_config.tmuxSession).constData()) != SSH_OK)
                 return fail(session, tr("Could not start tmux"), false);
         } else if (ssh_channel_request_shell(channel) != SSH_OK) {
@@ -794,7 +855,7 @@ private:
     // Without a mosh-server that starts, the terminal goes over SSH instead.
     bool startMosh(ssh_session session, ssh_channel *channel)
     {
-        QByteArray command = "mosh-server new -c 256";
+        QByteArray command = moshServerCommand() + " new -c 256";
         // Applied only where the server has no UTF-8 locale of its own
         bool locale = false;
         for (const auto &variable : m_config.environment) {
@@ -808,8 +869,20 @@ private:
         // Listens where the SSH connection came in, which through a jump host is the wrong side
         if (!m_config.hasJump)
             command += " -s";
-        if (!m_config.tmuxSession.isEmpty())
-            command += " -- sh -c " + shellQuote(tmuxCommand(m_config.tmuxSession));
+        // The shell learns where to report to, and inside tmux the session does
+        // too, as its shells may have started under another connection
+        QByteArray shell;
+        if (!m_config.statusFile.isEmpty())
+            shell += "export LONGTERM_STATUS_FILE=\"$HOME/.cache/longterm/" + m_config.statusFile + "\"; ";
+        if (!m_config.tmuxSession.isEmpty()) {
+            if (!m_config.statusFile.isEmpty())
+                shell += "tmux set-environment -t " + shellQuote(m_config.tmuxSession)
+                        + " LONGTERM_STATUS_FILE \"$LONGTERM_STATUS_FILE\" 2>/dev/null; ";
+            shell += tmuxCommand(m_config.tmuxSession);
+        } else {
+            shell += "exec \"${SHELL:-/bin/sh}\" -l";
+        }
+        command += " -- sh -c " + shellQuote(shell);
         if (ssh_channel_request_exec(*channel, command.constData()) != SSH_OK)
             return fail(session, tr("Could not start mosh-server"), false);
 
@@ -902,6 +975,10 @@ private:
         }
         MoshClient *mosh = new MoshClient;
         const bool started = mosh->start(reinterpret_cast<sockaddr *>(&address), length, key, columns, rows);
+        if (started && !m_config.journalPath.isEmpty() && mosh->setJournal(m_config.journalPath)) {
+            mosh->setJournalNote(m_config.statusFile);
+            emit moshKey(key);
+        }
         key.fill('\0');
         if (!started) {
             report(mosh->errorString(), false, false);
@@ -914,11 +991,111 @@ private:
         return true;
     }
 
+    // A path in the home folder keeps its ~ outside the quotes so the shell expands it
+    QByteArray moshServerCommand() const
+    {
+        const QByteArray path = m_config.moshServer.trimmed();
+        if (path.isEmpty())
+            return "mosh-server";
+        if (path.startsWith("~/"))
+            return "~/" + shellQuote(path.mid(2));
+        return shellQuote(path);
+    }
+
+    // Follows the status file, which the shell under mosh-server writes to, see longterm-status
+    void startStatusChannel(ssh_session session)
+    {
+        if (m_config.statusFile.isEmpty())
+            return;
+        // Leftovers of connections long gone are cleared on the way
+        const QByteArray script = "d=\"$HOME/.cache/longterm\"; mkdir -p \"$d\" || exit 1;"
+                " find \"$d\" -name '*.status' -mtime +7 -exec rm -f {} + 2>/dev/null;"
+                " f=\"$d/" + m_config.statusFile + "\"; touch \"$f\" && exec tail -n 0 -F \"$f\" 2>/dev/null";
+        m_statusChannel = ssh_channel_new(session);
+        if (m_statusChannel && ssh_channel_open_session(m_statusChannel) == SSH_OK
+                && ssh_channel_request_exec(m_statusChannel, ("sh -c " + shellQuote(script)).constData()) == SSH_OK)
+            return;
+        finishStatusChannel();
+    }
+
+    // False when the connection failed, which is reported
+    bool serviceStatusChannel(ssh_session session)
+    {
+        static const int MaxStatusLine = 8192;
+        if (!m_statusChannel)
+            return true;
+        char buffer[4096];
+        int n;
+        while ((n = ssh_channel_read_nonblocking(m_statusChannel, buffer, sizeof(buffer), 0)) > 0) {
+            m_statusInput.append(buffer, n);
+            int end;
+            while ((end = m_statusInput.indexOf('\n')) >= 0) {
+                const QByteArray line = m_statusInput.left(end).trimmed();
+                m_statusInput.remove(0, end + 1);
+                if (!line.isEmpty())
+                    emit statusLine(line);
+            }
+            // A line without an end is no status
+            if (m_statusInput.size() > MaxStatusLine)
+                m_statusInput.clear();
+        }
+        // Under mosh this may be the only thing reading the connection, so it notices it going
+        if (n == SSH_ERROR && !ssh_is_connected(session))
+            return fail(session, tr("Connection lost"), true);
+        if (n == SSH_ERROR || !ssh_channel_is_open(m_statusChannel) || ssh_channel_is_eof(m_statusChannel))
+            finishStatusChannel();
+        return true;
+    }
+
+    void finishStatusChannel()
+    {
+        if (!m_statusChannel)
+            return;
+        if (ssh_channel_is_open(m_statusChannel))
+            ssh_channel_close(m_statusChannel);
+        ssh_channel_free(m_statusChannel);
+        m_statusChannel = nullptr;
+        m_statusInput.clear();
+    }
+
     // Tells the server the session is over, waiting a moment for it to agree
+    // Picks up the mosh session of the journal, with no SSH connection of its own
+    bool resumeMosh()
+    {
+        int columns;
+        int rows;
+        {
+            QMutexLocker locker(&m_writeMutex);
+            columns = m_columns;
+            rows = m_rows;
+            m_resizePending = false;
+        }
+        MoshClient *mosh = new MoshClient;
+        if (!mosh->resume(m_config.journalPath, m_config.resumeKey, columns, rows)) {
+            report(mosh->errorString(), false, false);
+            delete mosh;
+            QFile::remove(m_config.journalPath);
+            emit moshGone();
+            return false;
+        }
+        m_mosh = mosh;
+        m_moshResumed = true;
+        emit moshStarted();
+        return true;
+    }
+
     void finishMosh()
     {
         if (!m_mosh)
             return;
+        // Left running for the next start of the app, which resumes it
+        if (m_keepMosh.loadAcquire() && !m_mosh->finished()) {
+            delete m_mosh;
+            m_mosh = nullptr;
+            return;
+        }
+        if (!m_config.journalPath.isEmpty())
+            QFile::remove(m_config.journalPath);
         m_mosh->shutdown();
         QElapsedTimer elapsed;
         elapsed.start();
@@ -953,6 +1130,7 @@ private:
             close(listener.fd);
         m_listeners.clear();
         finishSystemProbe();
+        finishStatusChannel();
         if (*channel) {
             if (ssh_channel_is_open(*channel)) {
                 ssh_channel_send_eof(*channel);
@@ -1079,6 +1257,8 @@ private:
         bool passwordLeft = !credentials->password.isEmpty();
         const bool hadKey = key != nullptr;
         if (key) {
+            if (!jump && !m_config.certificate.isEmpty())
+                attachCertificate(key);
             rc = ssh_userauth_publickey(session, nullptr, key);
             if (!jump && m_config.forwardAgent && (rc == SSH_AUTH_SUCCESS || rc == SSH_AUTH_PARTIAL)) {
                 m_agent = new SshAgent(key);
@@ -1136,6 +1316,19 @@ private:
             return false;
         }
         return fail(session, tr("Authentication failed"), false, jump);
+    }
+
+    // The key logs in with its certificate, which the server checks against its CA
+    void attachCertificate(ssh_key key)
+    {
+        const QList<QByteArray> fields = m_config.certificate.trimmed().split(' ');
+        ssh_key certificate = nullptr;
+        if (fields.size() < 2
+                || ssh_pki_import_cert_base64(fields.at(1).constData(), ssh_key_type_from_name(fields.at(0).constData()),
+                                              &certificate) != SSH_OK
+                || ssh_pki_copy_cert_to_privkey(certificate, key) != SSH_OK)
+            emit info(tr("The key's certificate could not be used, logging in with the plain key"));
+        ssh_key_free(certificate);
     }
 
     static QString promptLabel(const QString &prompt)
@@ -1199,6 +1392,10 @@ private:
     // Blocks until the user answers, returns false when the worker is stopped instead
     bool ask(const QString &text, const QString &label, bool echo, QByteArray *answer, bool canRemember = false)
     {
+        if (m_config.noPrompts) {
+            report(tr("The login needs an answer"), false, false);
+            return false;
+        }
         QMutexLocker locker(&m_promptMutex);
         m_promptAnswered = false;
         emit promptRequested(text, echo, canRemember, label);
@@ -1650,6 +1847,8 @@ private:
         if (!serviceStreams(session))
             return false;
         serviceSystemProbe();
+        if (!serviceStatusChannel(session))
+            return false;
         if (m_sftp && !m_sftp->service())
             return fail(session, tr("Connection lost"), true);
         if (idle->hasExpired(qint64(m_config.keepAliveInterval) * 1000)) {
@@ -1694,9 +1893,22 @@ private:
     // Passes on what mosh has for the terminal, false once the session is over
     bool serviceMosh()
     {
+        // A resumed session that never answers is gone from the server
+        if (m_moshResumed && !m_mosh->everHeard() && m_mosh->silence() >= MoshResumeTimeoutMs) {
+            QFile::remove(m_config.journalPath);
+            m_moshGone = true;
+            emit moshGone();
+            m_keepMosh.storeRelease(1);
+            return false;
+        }
         m_mosh->tick();
         for (const MoshClient::Output &output : m_mosh->takeOutput())
-            emit moshData(output.bytes, output.replace);
+            emit moshData(output.replace ? output.screen : QByteArray(), output.bytes, output.skipLines);
+        // After the screen it confirms
+        if (m_mosh->echoedBytes() != m_moshEchoed) {
+            m_moshEchoed = m_mosh->echoedBytes();
+            emit moshEcho(m_moshEchoed, m_mosh->roundTrip());
+        }
         const qint64 silence = m_mosh->silence();
         const int seconds = silence >= MoshSilenceMs ? int(silence / 1000) : 0;
         if (seconds != m_moshSilence) {
@@ -1714,10 +1926,10 @@ private:
     // Sleeps in poll() until the server sends something, another thread
     // wakes it, a forwarded socket is ready, or a keepalive is due, so an
     // idle connection costs no wakeups
-    void readLoop(ssh_session session, ssh_channel *channel)
+    // sshUp is false for a resumed mosh session, which has no SSH connection
+    void readLoop(ssh_session session, ssh_channel *channel, bool sshUp = true)
     {
-        const socket_t fd = ssh_get_fd(session);
-        bool sshUp = true;
+        const socket_t fd = sshUp ? ssh_get_fd(session) : -1;
         QElapsedTimer idle;
         idle.start();
         while (!m_stop.loadAcquire()) {
@@ -1746,7 +1958,7 @@ private:
                 if (resizePending)
                     m_mosh->resize(columns, rows);
                 m_mosh->write(pending);
-            } else {
+            } else if (*channel) {
                 if (resizePending)
                     ssh_channel_change_pty_size(*channel, columns, rows);
                 if (!pending.isEmpty()) {
@@ -1773,6 +1985,9 @@ private:
                 }
             }
             if (m_mosh && !serviceMosh()) {
+                // Not an ending shell, the session reconnects anew
+                if (m_moshGone)
+                    return;
                 if (!m_mosh->errorString().isEmpty()) {
                     emit failed(m_mosh->errorString(), false);
                     return;
@@ -1781,8 +1996,11 @@ private:
             }
 
             QVector<pollfd> fds;
-            // While throttled consumed() wakes the loop, the socket would keep it spinning
-            fds.append(pollfd { sshUp ? fd : -1, short(throttled() ? 0 : POLLIN), 0 });
+            // While throttled consumed() wakes the loop, the socket would keep it spinning,
+            // and so would it with no channel to read what comes. Then the keepalive notices
+            // a connection that went.
+            const bool reading = *channel || m_statusChannel || m_sftp || m_systemProbe || !m_streams.isEmpty();
+            fds.append(pollfd { sshUp ? fd : -1, short(throttled() || !reading ? 0 : POLLIN), 0 });
             fds.append(pollfd { m_wakePipe[0], POLLIN, 0 });
             const int firstListener = fds.size();
             for (const Listener &listener : m_listeners)
@@ -1813,6 +2031,8 @@ private:
                 }
                 if (m_systemProbe)
                     buffered = buffered || ssh_channel_poll(m_systemProbe, 0) > 0;
+                if (m_statusChannel)
+                    buffered = buffered || ssh_channel_poll(m_statusChannel, 0) > 0;
                 if (m_sftp)
                     buffered = buffered || m_sftp->ready();
             }
@@ -1869,8 +2089,15 @@ private:
             }
         }
         // Failures return above, so the server ended the shell unless we were stopped
-        if (!m_stop.loadAcquire())
-            emit shellExited();
+        if (m_stop.loadAcquire())
+            return;
+        uint32_t status = 0;
+        char *signal = nullptr;
+        int coreDumped = 0;
+        const bool known = *channel && ssh_channel_get_exit_state(*channel, &status, &signal, &coreDumped) == SSH_OK
+                && !signal;
+        ssh_string_free_char(signal);
+        emit shellExited(known ? int(status) : -1);
     }
 
     void report(const QString &message, bool network, bool jump)
@@ -1924,10 +2151,16 @@ private:
     QList<Stream *> m_newStreams;
     QList<Listener> m_listeners;
     SftpEngine *m_sftp;
+    ssh_channel m_statusChannel;
+    QByteArray m_statusInput;
     MoshClient *m_mosh;
     int m_moshSilence;
     int m_moshPort;
     bool m_moshNothingHeardReported;
+    bool m_moshResumed;
+    bool m_moshGone;
+    qint64 m_moshEchoed;
+    QAtomicInt m_keepMosh;
 };
 
 SshSession::SshSession(const QString &name, const QString &host, int port, const QString &user,
@@ -1954,14 +2187,92 @@ SshSession::SshSession(const QString &name, const QString &host, int port, const
     , m_silentSeconds(0)
     , m_sshUp(false)
     , m_files(new SftpBrowser(this))
+    , m_sideWorker(nullptr)
+    , m_sideFetchPending(false)
+    , m_sideUp(false)
+    , m_moshVault(nullptr)
+    , m_resuming(false)
+    , m_connectAfterWorker(false)
+    , m_log(nullptr)
+    , m_typedBytes(0)
+    , m_predictionTrusted(false)
+    , m_predictionEnabled(true)
+    , m_roundTrip(0)
+    , m_predictionMinRoundTrip(50)
+    , m_typedUnknown(false)
+    , m_typedEscape(0)
+    , m_typedPaste(false)
 {
     connect(m_terminal, &Terminal::outputReady, this, &SshSession::onTerminalOutput);
     connect(m_terminal, &Terminal::sizeChanged, this, &SshSession::onTerminalSizeChanged);
+    connect(m_terminal, &Terminal::lineScrolled, this, &SshSession::writeLog);
+    // Long enough to read, a notice is not a log
+    m_noticeTimer.setSingleShot(true);
+    m_noticeTimer.setInterval(NoticeMs);
+    connect(&m_noticeTimer, &QTimer::timeout, this, [this]() { setNotice(QString()); });
+    m_sideRetry.setSingleShot(true);
+    connect(&m_sideRetry, &QTimer::timeout, this, &SshSession::startSideWorker);
 }
 
 SshSession::~SshSession()
 {
-    stopWorker();
+    stopSideWorker();
+    // The app is going, a mosh session stays for the next start to resume
+    stopWorker(true);
+    finishLog();
+}
+
+void SshSession::startLog()
+{
+    finishLog();
+    if (!m_options.logging)
+        return;
+    const QString directory = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
+            + QStringLiteral("/Longterm");
+    QDir().mkpath(directory);
+    QString name = (m_name.isEmpty() ? m_user + QLatin1Char('@') + m_host : m_name);
+    name.replace(QRegExp(QStringLiteral("[/\\\\:*?\"<>|\\x0000-\\x001f]")), QStringLiteral("_"));
+    m_log = new QFile(QStringLiteral("%1/%2 %3.log").arg(directory, name,
+                                                         QDate::currentDate().toString(Qt::ISODate)), this);
+    if (!m_log->open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+        m_terminal->write(tr("Could not write the session log: %1").arg(m_log->errorString()).toUtf8() + "\r\n");
+        delete m_log;
+        m_log = nullptr;
+        return;
+    }
+    writeLog(tr("--- Connected to %1@%2 at %3 ---").arg(m_user, m_host,
+                                                         QDateTime::currentDateTime().toString(Qt::ISODate)));
+    m_terminal->setReportScrolledLines(true);
+    if (m_logPath != m_log->fileName()) {
+        m_logPath = m_log->fileName();
+        emit logPathChanged();
+    }
+}
+
+void SshSession::finishLog()
+{
+    if (!m_log)
+        return;
+    // What is still on the screen never scrolled off
+    QStringList lines;
+    for (int row = 0; row < m_terminal->rows(); ++row)
+        lines.append(m_terminal->text(row));
+    while (!lines.isEmpty() && lines.last().isEmpty())
+        lines.removeLast();
+    for (const QString &line : lines)
+        writeLog(line);
+    writeLog(tr("--- Disconnected at %1 ---").arg(QDateTime::currentDateTime().toString(Qt::ISODate)));
+    m_terminal->setReportScrolledLines(false);
+    delete m_log;
+    m_log = nullptr;
+}
+
+void SshSession::writeLog(const QString &line)
+{
+    if (!m_log)
+        return;
+    m_log->write(line.toUtf8() + '\n');
+    m_log->flush();
 }
 
 bool SshSession::hasLocalAddress() const
@@ -2049,16 +2360,58 @@ void SshSession::answerPrompt(const QString &answer, bool remember)
 
 void SshSession::roam()
 {
-    if (m_worker && m_usesMosh)
-        m_worker->roam();
+    if (!m_worker || !m_usesMosh)
+        return;
+    m_worker->roam();
+    // A new network is a good moment to get files and forwards back
+    if (!m_sshUp && !m_sideUp) {
+        stopSideWorker();
+        startSideWorker();
+    }
 }
 
 bool SshSession::sendSftp(const SftpRequest &request)
 {
-    if (!m_worker || !filesAvailable())
+    if (m_worker && m_state == Connected && m_sshUp)
+        m_worker->sftp(request);
+    else if (m_sideWorker && m_sideUp)
+        m_sideWorker->sftp(request);
+    else
         return false;
-    m_worker->sftp(request);
     return true;
+}
+
+void SshSession::sendInput(const QString &text)
+{
+    if (m_worker && m_state == Connected)
+        m_worker->write(text.toUtf8());
+}
+
+QString SshSession::scrollbackText() const
+{
+    QStringList lines;
+    for (int row = -m_terminal->scrollbackLines(); row < m_terminal->rows(); ++row)
+        lines.append(m_terminal->text(row));
+    while (!lines.isEmpty() && lines.last().isEmpty())
+        lines.removeLast();
+    return lines.join(QLatin1Char('\n')) + QLatin1Char('\n');
+}
+
+QString SshSession::saveScrollback()
+{
+    const QString directory = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    QDir().mkpath(directory);
+    QString name = (m_name.isEmpty() ? m_user + QLatin1Char('@') + m_host : m_name);
+    name.replace(QRegExp(QStringLiteral("[/\\\\:*?\"<>|\\x0000-\\x001f]")), QStringLiteral("_"));
+    const QString path = QStringLiteral("%1/%2 %3.txt").arg(directory, name,
+            QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH.mm.ss")));
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly) || file.write(scrollbackText().toUtf8()) < 0 || !file.commit()) {
+        m_errorString = tr("Could not save the scrollback: %1").arg(file.errorString());
+        emit errorStringChanged();
+        return QString();
+    }
+    return path;
 }
 
 void SshSession::dropConnection()
@@ -2101,6 +2454,29 @@ void SshSession::connectWithSecret(SecretVault *vault, const QString &secretId, 
     startConnection();
 }
 
+QString SshSession::journalPath() const
+{
+    if (m_sessionId.isEmpty())
+        return QString();
+    const QString directory = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QStringLiteral("/mosh");
+    QDir().mkpath(directory);
+    return directory + QLatin1Char('/') + m_sessionId + QStringLiteral(".journal");
+}
+
+bool SshSession::canResume() const
+{
+    return m_moshVault && m_options.mosh && !journalPath().isEmpty() && QFile::exists(journalPath());
+}
+
+void SshSession::forgetMosh()
+{
+    if (journalPath().isEmpty())
+        return;
+    QFile::remove(journalPath());
+    if (m_moshVault)
+        m_moshVault->remove(QStringLiteral("mosh") + m_sessionId, this, [](const QString &) {});
+}
+
 void SshSession::startConnection()
 {
     if (m_state != Disconnected)
@@ -2109,6 +2485,26 @@ void SshSession::startConnection()
     emit errorStringChanged();
     m_secretFetchPending = true;
     setState(Connecting);
+    // The mosh session the app left running, no login needed
+    if (canResume()) {
+        m_moshVault->fetch(QStringLiteral("mosh") + m_sessionId, this, [this](const QByteArray &key, const QString &error) {
+            if (!m_secretFetchPending)
+                return;
+            m_secretFetchPending = false;
+            if (!error.isEmpty() || key.isEmpty()) {
+                QFile::remove(journalPath());
+                setState(Disconnected);
+                startConnection();
+                return;
+            }
+            SshCredentials none;
+            m_resumeKey = key;
+            startWorker(none, none);
+            m_resumeKey.fill('\0');
+            m_resumeKey.clear();
+        });
+        return;
+    }
     fetchCredentials(m_hasJump ? m_jumpAuth : AuthSource(), [this](const SshCredentials &jumpCredentials) {
         fetchCredentials(m_auth, [this, jumpCredentials](const SshCredentials &credentials) {
             m_secretFetchPending = false;
@@ -2117,7 +2513,8 @@ void SshSession::startConnection()
     });
 }
 
-void SshSession::fetchCredentials(const AuthSource &source, const std::function<void(const SshCredentials &)> &done)
+void SshSession::fetchCredentials(const AuthSource &source, const std::function<void(const SshCredentials &)> &done,
+                                  bool side)
 {
     if (!source.vault) {
         SshCredentials credentials;
@@ -2126,11 +2523,17 @@ void SshSession::fetchCredentials(const AuthSource &source, const std::function<
         return;
     }
     const SecretKind kind = source.kind;
-    source.vault->fetch(source.secretId, this, [this, kind, done](const QByteArray &secret, const QString &error) {
-        // Disconnected while the secret was being fetched
-        if (!m_secretFetchPending)
+    source.vault->fetch(source.secretId, this, [this, kind, done, side](const QByteArray &secret, const QString &error) {
+        if (side) {
+            // Disconnected meanwhile, or the secret is not there to try with
+            if (!m_sideFetchPending || !error.isEmpty()) {
+                m_sideFetchPending = false;
+                return;
+            }
+        } else if (!m_secretFetchPending) {
+            // Disconnected while the secret was being fetched
             return;
-        if (!error.isEmpty()) {
+        } else if (!error.isEmpty()) {
             m_secretFetchPending = false;
             onWorkerFailed(kind == PrivateKey ? tr("Could not read private key: %1").arg(error)
                                               : tr("Could not read saved password: %1").arg(error), false);
@@ -2153,16 +2556,23 @@ QString SshSession::knownHostsPath()
     return dataDir + QStringLiteral("/known_hosts");
 }
 
-void SshSession::startWorker(const SshCredentials &credentials, const SshCredentials &jumpCredentials)
+void SshSession::startWorker(const SshCredentials &credentials, const SshCredentials &jumpCredentials, bool side)
 {
-    m_errorString.clear();
-    emit errorStringChanged();
-    if (m_hostKeyMismatch) {
-        m_hostKeyMismatch = false;
-        emit hostKeyMismatchChanged();
+    if (!side) {
+        m_errorString.clear();
+        emit errorStringChanged();
+        if (m_hostKeyMismatch) {
+            m_hostKeyMismatch = false;
+            emit hostKeyMismatchChanged();
+        }
+        m_reachedConnected = false;
+        m_localAddress.clear();
+        // A name of its own for each connection's status file, a resumed one keeps its own
+        if (m_resumeKey.isEmpty())
+            m_statusFile = m_options.mosh ? QUuid::createUuid().toRfc4122().toHex() + ".status" : QByteArray();
+        else
+            m_statusFile = MoshClient::journalNote(journalPath());
     }
-    m_reachedConnected = false;
-    m_localAddress.clear();
 
     SshWorker::Config config;
     config.host = m_host.toUtf8();
@@ -2179,7 +2589,17 @@ void SshSession::startWorker(const SshCredentials &credentials, const SshCredent
     config.connectTimeout = m_options.connectTimeout > 0 ? m_options.connectTimeout : DefaultConnectTimeout;
     config.keepAliveInterval = m_options.keepAliveInterval > 0 ? m_options.keepAliveInterval : DefaultKeepAliveInterval;
     config.tmuxSession = m_options.tmuxSession.toUtf8();
-    config.mosh = m_options.mosh;
+    config.moshServer = m_options.moshServer.toUtf8();
+    config.command = m_options.command.toUtf8();
+    config.certificate = m_certificate;
+    config.mosh = m_options.mosh && !side;
+    config.statusFile = m_statusFile;
+    config.sideOnly = side;
+    if (m_options.mosh && !side) {
+        config.journalPath = journalPath();
+        config.resumeKey = m_resumeKey;
+    }
+    config.noPrompts = side;
     for (const QString &entry : m_options.environment) {
         const int equals = entry.indexOf(QLatin1Char('='));
         if (equals > 0)
@@ -2222,16 +2642,41 @@ void SshSession::startWorker(const SshCredentials &credentials, const SshCredent
             config.forwards.append(forward);
     }
 
-    m_worker = new SshWorker(config, m_terminal->columns(), m_terminal->rows());
+    SshWorker *worker = new SshWorker(config, m_terminal->columns(), m_terminal->rows());
     config.credentials.password.fill('\0');
     config.credentials.privateKey.fill('\0');
     config.jumpCredentials.password.fill('\0');
     config.jumpCredentials.privateKey.fill('\0');
+    if (side) {
+        // Quietly, the terminal goes on over mosh whether this works or not
+        m_sideWorker = worker;
+        connect(worker, &SshWorker::connected, this, [this]() { setSideUp(true); });
+        connect(worker, &SshWorker::info, this, &SshSession::onWorkerInfo);
+        connect(worker, &SshWorker::statusLine, this, &SshSession::onStatusLine);
+        connect(worker, &SshWorker::sftpListed, m_files, &SftpBrowser::onListed);
+        connect(worker, &SshWorker::sftpDone, m_files, &SftpBrowser::onDone);
+        connect(worker, &SshWorker::sftpProgress, m_files, &SftpBrowser::onProgress);
+        connect(worker, &SshWorker::sftpTransferred, m_files, &SftpBrowser::onTransferred);
+        connect(worker, &QThread::finished, this, &SshSession::onSideWorkerFinished);
+        worker->start();
+        return;
+    }
+    m_worker = worker;
+    connect(m_worker, &SshWorker::statusLine, this, &SshSession::onStatusLine);
+    connect(m_worker, &SshWorker::moshKey, this, [this](const QByteArray &key) {
+        if (m_moshVault)
+            m_moshVault->store(QStringLiteral("mosh") + m_sessionId, key, this, [](const QString &) {});
+    });
+    connect(m_worker, &SshWorker::moshGone, this, [this]() { m_connectAfterWorker = true; });
+    connect(m_worker, &SshWorker::moshEcho, this, &SshSession::onMoshEcho);
+    m_typedBytes = 0;
+    clearPredictions(false);
+    m_resuming = !config.resumeKey.isEmpty();
     connect(m_worker, &SshWorker::connected, this, &SshSession::onWorkerConnected);
     connect(m_worker, &SshWorker::dataReceived, this, &SshSession::onWorkerData);
     connect(m_worker, &SshWorker::info, this, &SshSession::onWorkerInfo);
     connect(m_worker, &SshWorker::failed, this, &SshSession::onWorkerFailed);
-    connect(m_worker, &SshWorker::shellExited, this, &SshSession::shellExited);
+    connect(m_worker, &SshWorker::shellExited, this, &SshSession::onShellExited);
     connect(m_worker, &SshWorker::hostKeyChanged, this, &SshSession::onHostKeyChanged);
     connect(m_worker, &SshWorker::promptRequested, this, &SshSession::onWorkerPrompt);
     connect(m_worker, &SshWorker::systemDetected, this, &SshSession::onWorkerSystem);
@@ -2251,6 +2696,9 @@ void SshSession::startWorker(const SshCredentials &credentials, const SshCredent
 void SshSession::disconnectFromHost()
 {
     m_lost = false;
+    // Ending the session ends its mosh session too, nothing is left to resume
+    if (m_moshVault && !m_sessionId.isEmpty())
+        m_moshVault->remove(QStringLiteral("mosh") + m_sessionId, this, [](const QString &) {});
     if (m_secretFetchPending) {
         m_secretFetchPending = false;
         setState(Disconnected);
@@ -2264,8 +2712,12 @@ void SshSession::onWorkerConnected(const QString &localAddress)
     m_localAddress = localAddress;
     m_reachedConnected = true;
     m_lost = false;
-    m_sshUp = true;
+    // A resumed mosh session has no SSH connection, one comes up next to it for files
+    m_sshUp = !m_resuming;
     setState(Connected);
+    startLog();
+    if (m_resuming)
+        m_sideRetry.start(SideFirstTryMs);
     const QString script = m_startupScript.trimmed();
     if (!script.isEmpty())
         m_worker->write(QString(script + QLatin1Char('\n')).replace(QLatin1Char('\n'), QLatin1Char('\r')).toUtf8());
@@ -2281,7 +2733,80 @@ void SshSession::onWorkerData(const QByteArray &data)
 
 void SshSession::onWorkerInfo(const QString &message)
 {
+    // mosh's screen updates assume the terminal shows exactly what they left,
+    // so text written in between would garble it
+    if (m_usesMosh) {
+        setNotice(message);
+        return;
+    }
     m_terminal->write(message.toUtf8() + "\r\n");
+}
+
+void SshSession::setNotice(const QString &notice)
+{
+    m_notice = notice;
+    emit noticeChanged();
+    if (!notice.isEmpty())
+        m_noticeTimer.start();
+}
+
+void SshSession::onStatusLine(const QByteArray &line)
+{
+    // "777;payload" or "9;payload", as OSC 777 and OSC 9 would carry it
+    const int separator = line.indexOf(';');
+    const int command = line.left(separator).toInt();
+    if (separator > 0 && (command == 777 || command == 9))
+        m_terminal->notifyFromOsc(command, line.mid(separator + 1));
+}
+
+void SshSession::startSideWorker()
+{
+    if (m_sideWorker || m_sideFetchPending || !m_worker || !m_usesMosh || m_state != Connected || m_sshUp)
+        return;
+    m_sideFetchPending = true;
+    fetchCredentials(m_hasJump ? m_jumpAuth : AuthSource(), [this](const SshCredentials &jumpCredentials) {
+        fetchCredentials(m_auth, [this, jumpCredentials](const SshCredentials &credentials) {
+            if (!m_sideFetchPending)
+                return;
+            m_sideFetchPending = false;
+            if (m_worker && m_usesMosh && !m_sideWorker)
+                startWorker(credentials, jumpCredentials, true);
+        }, true);
+    }, true);
+}
+
+void SshSession::stopSideWorker()
+{
+    m_sideFetchPending = false;
+    m_sideRetry.stop();
+    setSideUp(false);
+    if (!m_sideWorker)
+        return;
+    m_sideWorker->disconnect(this);
+    m_sideWorker->stop();
+    connect(m_sideWorker, &QThread::finished, m_sideWorker, &QObject::deleteLater);
+    if (m_sideWorker->isFinished())
+        m_sideWorker->deleteLater();
+    m_sideWorker = nullptr;
+}
+
+void SshSession::onSideWorkerFinished()
+{
+    if (m_sideWorker)
+        m_sideWorker->deleteLater();
+    m_sideWorker = nullptr;
+    setSideUp(false);
+    // Tried again while the mosh session lasts
+    if (m_worker && m_usesMosh && !m_sshUp)
+        m_sideRetry.start(SideRetryMs);
+}
+
+void SshSession::setSideUp(bool up)
+{
+    if (m_sideUp == up)
+        return;
+    m_sideUp = up;
+    emit filesAvailableChanged();
 }
 
 void SshSession::onWorkerFailed(const QString &message, bool network)
@@ -2332,10 +2857,21 @@ void SshSession::onWorkerFinished()
     m_localAddress.clear();
     setPrompt(false, QString(), false, false, QString());
     setSshUp(false);
+    stopSideWorker();
+    setNotice(QString());
     m_files->onDisconnected();
+    finishLog();
     setUsesMosh(false);
     setSilentSeconds(0);
+    m_resuming = false;
     setState(Disconnected);
+    if (m_connectAfterWorker) {
+        m_connectAfterWorker = false;
+        forgetMosh();
+        m_terminal->write(tr("The mosh session was gone from the server, connecting again").toUtf8() + "\r\n");
+        startConnection();
+        return;
+    }
     if (lost)
         emit connectionLost();
 }
@@ -2378,6 +2914,17 @@ void SshSession::setState(State state)
     emit filesAvailableChanged();
 }
 
+void SshSession::onShellExited(int status)
+{
+    // A command's output stays on screen to read, a shell's session goes
+    if (m_options.command.isEmpty()) {
+        emit shellExited();
+        return;
+    }
+    m_terminal->write(QByteArrayLiteral("\r\n"));
+    emit commandFinished(status);
+}
+
 void SshSession::onMoshStarted()
 {
     setUsesMosh(true);
@@ -2390,10 +2937,13 @@ void SshSession::onMoshStarted()
     m_terminal->write(reset);
 }
 
-void SshSession::onMoshData(const QByteArray &data, bool replace)
+void SshSession::onMoshData(const QByteArray &screen, const QByteArray &data, int skipLines)
 {
-    // A replaced screen would otherwise scroll its lines into the scrollback again
-    m_terminal->write(data, !replace);
+    // A screen started over would otherwise go into the scrollback, and so would
+    // lines that are in it already
+    if (!screen.isEmpty())
+        m_terminal->write(screen, false);
+    m_terminal->write(data, true, skipLines);
 }
 
 void SshSession::onMoshSilence(int seconds)
@@ -2404,6 +2954,8 @@ void SshSession::onMoshSilence(int seconds)
 void SshSession::onSshClosed()
 {
     setSshUp(false);
+    // Soon, as only the SSH connection may have gone and not the network
+    m_sideRetry.start(SideFirstTryMs);
 }
 
 void SshSession::setUsesMosh(bool usesMosh)
@@ -2447,8 +2999,151 @@ void SshSession::setPrompt(bool prompting, const QString &text, bool echo, bool 
 
 void SshSession::onTerminalOutput(const QByteArray &data)
 {
-    if (m_worker && m_state == Connected)
+    if (m_worker && m_state == Connected) {
+        trackTyping(data);
+        if (m_usesMosh)
+            predict(data);
         m_worker->write(data);
+    }
+}
+
+// Shows typing before the server echoes it, as mosh's own client does. Each
+// line starts out unsure, so nothing typed at a password prompt shows: only
+// once the screen confirmed earlier typing on the line do new keys show.
+void SshSession::predict(const QByteArray &data)
+{
+    static const int MaxPredicted = 200;
+    m_typedBytes += data.size();
+    bool printable = true;
+    for (const char byte : data)
+        printable = printable && uchar(byte) >= 0x20 && uchar(byte) != 0x7f;
+    const QString text = QString::fromUtf8(data);
+    int column = m_predictions.isEmpty() ? m_terminal->cursorPosition().col
+                                         : m_predictions.last().column + m_predictions.last().text.size();
+    const int row = m_predictions.isEmpty() ? m_terminal->cursorPosition().row : m_predictions.last().row;
+    // Enter, arrows and editing keys move things in ways only the server knows
+    if (!printable || !m_predictionEnabled || m_terminal->altScreen()
+            || column + text.size() >= m_terminal->columns() || m_predictions.size() >= MaxPredicted) {
+        clearPredictions(false);
+        return;
+    }
+    m_predictions.append(Prediction { text, row, column, m_typedBytes });
+    m_predictionAge.start();
+    showPredictions();
+    // Takes the guesses down if the server never confirms them
+    QTimer::singleShot(MaxPredictionAgeMs + 100, this, &SshSession::showPredictions);
+}
+
+void SshSession::onMoshEcho(qint64 echoedBytes, int roundTrip)
+{
+    m_roundTrip = roundTrip;
+    while (!m_predictions.isEmpty() && m_predictions.first().endBytes <= echoedBytes) {
+        const Prediction prediction = m_predictions.takeFirst();
+        // The server has shown it, so the screen says whether it came out as guessed
+        const QString shown = m_terminal->text(prediction.row).mid(prediction.column, prediction.text.size());
+        if (shown != prediction.text) {
+            clearPredictions(false);
+            return;
+        }
+        m_predictionTrusted = true;
+    }
+    showPredictions();
+}
+
+void SshSession::showPredictions()
+{
+    if (!m_predictions.isEmpty() && m_predictionAge.hasExpired(MaxPredictionAgeMs)) {
+        clearPredictions(false);
+        return;
+    }
+    if (m_predictions.isEmpty() || !m_predictionTrusted || m_roundTrip < m_predictionMinRoundTrip) {
+        m_terminal->setPrediction(-1, 0, QString());
+        return;
+    }
+    QString text;
+    for (const Prediction &prediction : m_predictions)
+        text += prediction.text;
+    m_terminal->setPrediction(m_predictions.first().row, m_predictions.first().column, text);
+}
+
+void SshSession::clearPredictions(bool trusted)
+{
+    m_predictions.clear();
+    m_predictionTrusted = trusted;
+    m_terminal->setPrediction(-1, 0, QString());
+}
+
+// Follows simple line editing. Arrow keys, Tab and the like change the line in
+// ways only the shell knows, so such lines are not kept.
+void SshSession::trackTyping(const QByteArray &data)
+{
+    static const int MaxHistory = 200;
+    static const int MaxLine = 4096;
+    for (const char byte : data) {
+        const uchar c = uchar(byte);
+        if (m_typedEscape == 1) {
+            // ESC [ starts a CSI sequence, ESC O one more byte, anything else is Alt with a key
+            m_typedEscape = c == '[' ? 2 : c == 'O' ? 3 : 0;
+            if (m_typedEscape == 0)
+                m_typedUnknown = true;
+            continue;
+        }
+        if (m_typedEscape == 2) {
+            if (c >= 0x40 && c <= 0x7e) {
+                // Bracketed paste marks the text between as typed in one go
+                if (c == '~' && (m_typedParameters == "200" || m_typedParameters == "201"))
+                    m_typedPaste = m_typedParameters == "200";
+                else
+                    m_typedUnknown = true;
+                m_typedParameters.clear();
+                m_typedEscape = 0;
+            } else if (m_typedParameters.size() < 16) {
+                m_typedParameters.append(byte);
+            }
+            continue;
+        }
+        if (m_typedEscape == 3) {
+            m_typedEscape = 0;
+            m_typedUnknown = true;
+            continue;
+        }
+        if (c == 0x1b) {
+            m_typedEscape = 1;
+        } else if (c == '\r' && !m_typedPaste) {
+            const QString line = QString::fromUtf8(m_typed).trimmed();
+            // Only what the screen shows on the cursor's line, typed with echo on
+            const bool shown = !line.isEmpty() && !m_terminal->altScreen()
+                    && m_terminal->text(m_terminal->cursorPosition().row).contains(line);
+            if (!m_typedUnknown && shown) {
+                m_history.removeAll(line);
+                m_history.append(line);
+                while (m_history.size() > MaxHistory)
+                    m_history.removeFirst();
+                emit historyChanged();
+            }
+            m_typed.clear();
+            m_typedUnknown = false;
+        } else if (c == 0x7f || c == 0x08) {
+            // One character, which in UTF-8 may be several bytes
+            while (!m_typed.isEmpty() && (uchar(m_typed.at(m_typed.size() - 1)) & 0xc0) == 0x80)
+                m_typed.chop(1);
+            m_typed.chop(1);
+        } else if (c == 0x15 || c == 0x03) {
+            // Ctrl+U and Ctrl+C start over
+            m_typed.clear();
+            m_typedUnknown = false;
+        } else if (c == 0x17) {
+            // Ctrl+W, the last word
+            while (m_typed.endsWith(' '))
+                m_typed.chop(1);
+            while (!m_typed.isEmpty() && !m_typed.endsWith(' '))
+                m_typed.chop(1);
+        } else if (c < 0x20 && !(m_typedPaste && (c == '\r' || c == '\n' || c == '\t'))) {
+            m_typedUnknown = true;
+        } else if (m_typed.size() < MaxLine) {
+            m_typed.append(byte);
+        }
+    }
 }
 
 void SshSession::onTerminalSizeChanged()
@@ -2457,12 +3152,12 @@ void SshSession::onTerminalSizeChanged()
         m_worker->resize(m_terminal->columns(), m_terminal->rows());
 }
 
-void SshSession::stopWorker()
+void SshSession::stopWorker(bool keepMosh)
 {
     if (!m_worker)
         return;
     m_worker->disconnect(this);
-    m_worker->stop();
+    m_worker->stop(keepMosh);
     if (m_worker->wait(StopWaitMs)) {
         delete m_worker;
     } else {

@@ -1,7 +1,10 @@
 #include "sftpbrowser.h"
 
 #include <QDateTime>
+#include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QStandardPaths>
 #include <QUrl>
 
 #include <algorithm>
@@ -113,13 +116,13 @@ bool SftpBrowser::contains(const QString &name) const
     return false;
 }
 
-void SftpBrowser::download(const QString &remotePath)
+void SftpBrowser::download(const QString &remotePath, bool open)
 {
     SftpRequest request { SftpRequest::Download, 0, remotePath, QString(), false };
     if (!send(&request))
         return;
     m_transfers.append(Transfer { request.id, remotePath.section(QLatin1Char('/'), -1, -1, QString::SectionSkipEmpty),
-                                  false, 0, 0 });
+                                  false, 0, 0, open });
     emit transfersChanged();
 }
 
@@ -135,7 +138,7 @@ void SftpBrowser::upload(const QString &localPath, const QString &remoteDirector
     SftpRequest request { SftpRequest::Upload, 0, remote, local, overwrite };
     if (!send(&request))
         return;
-    m_transfers.append(Transfer { request.id, name, true, 0, QFileInfo(local).size() });
+    m_transfers.append(Transfer { request.id, name, true, 0, QFileInfo(local).isDir() ? 0 : QFileInfo(local).size(), false });
     emit transfersChanged();
 }
 
@@ -166,6 +169,19 @@ void SftpBrowser::cancel(int id)
 {
     // Names the transfer by its id
     m_session->sendSftp(SftpRequest { SftpRequest::Cancel, id, QString(), QString(), false });
+}
+
+QString SftpBrowser::writeSharedText(const QString &name, const QString &text)
+{
+    const QString directory = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QStringLiteral("/shared");
+    QDir().mkpath(directory);
+    QString fileName = QFileInfo(name).fileName();
+    if (fileName.isEmpty())
+        fileName = tr("shared.txt");
+    QFile file(directory + QLatin1Char('/') + fileName);
+    if (!file.open(QIODevice::WriteOnly) || file.write(text.toUtf8()) < 0)
+        return QString();
+    return file.fileName();
 }
 
 void SftpBrowser::onListed(int id, const QString &path, const QVariantList &entries, const QString &error)
@@ -229,7 +245,7 @@ void SftpBrowser::onTransferred(int id, const QString &localPath, const QString 
             continue;
         const Transfer transfer = m_transfers.takeAt(i);
         emit transfersChanged();
-        emit transferFinished(transfer.name, transfer.upload, localPath, error);
+        emit transferFinished(transfer.name, transfer.upload, localPath, error, transfer.open);
         // A new file in the folder shown
         if (transfer.upload && error.isEmpty())
             refresh();
@@ -248,7 +264,7 @@ void SftpBrowser::onDisconnected()
     if (!transfers.isEmpty())
         emit transfersChanged();
     for (const Transfer &transfer : transfers)
-        emit transferFinished(transfer.name, transfer.upload, QString(), tr("Disconnected"));
+        emit transferFinished(transfer.name, transfer.upload, QString(), tr("Disconnected"), false);
 }
 
 void SftpBrowser::setLoading(bool loading)

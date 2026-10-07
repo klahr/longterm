@@ -3,7 +3,7 @@
 # Usage: codex.sh <prompt|tool|tool-done|permission|stop|interrupt|end>, the hook's JSON on stdin
 status() { sh "$(dirname "$0")/../bin/longterm-status" "$@"; }
 # longterm-status finds the terminal, inside tmux as well
-[ -w "$SSH_TTY" ] || [ -n "$TMUX" ] || exit 0
+[ -w "$SSH_TTY" ] || [ -n "$TMUX" ] || [ -n "$LONGTERM_STATUS_FILE" ] || exit 0
 
 # What a tool call is about to do, in a few words. apply_patch carries the whole patch as its
 # command, the files are on its "*** Update File: <path>" lines
@@ -28,7 +28,8 @@ case "$1" in
         status waiting
         reason=$(printf '%s' "$input" | jq -r '.tool_input.description // empty')
         [ -n "$reason" ] || reason="Wants to run: $(printf '%s' "$input" | describe_tool)"
-        status notify Codex "$reason"
+        # y approves in Codex's approval prompt, Esc refuses
+        status ask Codex "$reason" 'Yes=y' 'No=\e'
         ;;
     stop) status done; status notify Codex Done ;;
     # Cancelled, Codex waits for the next prompt without a Stop

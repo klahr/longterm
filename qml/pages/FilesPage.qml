@@ -9,6 +9,8 @@ Page {
     property var session
     // The folder to start in, the home folder when empty
     property string startPath
+    // Files shared from another app, uploaded to the folder the user goes to
+    property var pendingUploads: []
     readonly property var files: session.files
 
     function formatSize(bytes) {
@@ -34,14 +36,38 @@ Page {
 
     allowedOrientations: Orientation.All
 
-    Component.onCompleted: files.open(startPath)
+    Component.onCompleted: {
+        if (session.filesAvailable)
+            files.open(startPath)
+    }
+
+    // A connection that was still coming up, or came back
+    Connections {
+        target: session
+        onFilesAvailableChanged: {
+            if (session.filesAvailable && files.path.length === 0)
+                files.open(page.startPath)
+        }
+    }
 
     Component {
         id: pickerComponent
 
-        ContentPickerPage {
+        MultiContentPickerDialog {
             title: qsTr("Upload to %1").arg(files.path)
-            onSelectedContentPropertiesChanged: page.upload(selectedContentProperties.filePath)
+            onAccepted: {
+                for (var i = 0; i < selectedContent.count; ++i)
+                    page.upload(selectedContent.get(i).filePath)
+            }
+        }
+    }
+
+    Component {
+        id: folderPickerComponent
+
+        FolderPickerDialog {
+            title: qsTr("Upload a folder to %1").arg(files.path)
+            onAccepted: page.upload(selectedPath)
         }
     }
 
@@ -98,9 +124,15 @@ Page {
             busy: files.loading
 
             MenuItem {
-                text: qsTr("Upload file")
+                text: qsTr("Upload files")
                 enabled: session.filesAvailable && files.path.length > 0
                 onClicked: pageStack.animatorPush(pickerComponent)
+            }
+
+            MenuItem {
+                text: qsTr("Upload a folder")
+                enabled: session.filesAvailable && files.path.length > 0
+                onClicked: pageStack.animatorPush(folderPickerComponent)
             }
 
             MenuItem {
@@ -145,6 +177,18 @@ Page {
                 bottomPadding: Theme.paddingMedium
             }
 
+            Button {
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: page.pendingUploads.length > 0
+                enabled: session.filesAvailable && files.path.length > 0
+                text: qsTr("Upload %n file(s) here", "", page.pendingUploads.length)
+                onClicked: {
+                    for (var i = 0; i < page.pendingUploads.length; ++i)
+                        page.upload(page.pendingUploads[i])
+                    page.pendingUploads = []
+                }
+            }
+
             BackgroundItem {
                 visible: files.path.length > 0 && files.path !== "/"
                 enabled: session.filesAvailable
@@ -186,7 +230,12 @@ Page {
             menu: ContextMenu {
                 MenuItem {
                     visible: !model.directory
-                    text: qsTr("Download")
+                    text: qsTr("Open")
+                    onClicked: files.download(item.path, true)
+                }
+
+                MenuItem {
+                    text: model.directory ? qsTr("Download folder") : qsTr("Download")
                     onClicked: files.download(item.path)
                 }
 
@@ -255,7 +304,7 @@ Page {
         ViewPlaceholder {
             enabled: listView.count === 0 && !files.loading && files.path.length > 0
             text: qsTr("Empty folder")
-            hintText: qsTr("Pull down to upload a file")
+            hintText: qsTr("Pull down to upload files")
         }
 
         BusyIndicator {

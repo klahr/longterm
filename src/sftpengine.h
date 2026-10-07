@@ -34,7 +34,8 @@ struct SftpRequest {
     int id;
     // Remote, an empty path for List is the home directory
     QString path;
-    // The new remote path for Rename, the local file for Upload
+    // The new remote path for Rename, the local file or folder for Upload,
+    // where a Download goes, empty for the Downloads folder
     QString target;
     // Upload replaces a file that is already there
     bool overwrite;
@@ -76,15 +77,27 @@ private:
         quint32 length;
     };
 
+    // One file of a transfer, a folder has many
+    struct Item {
+        QString remote;
+        QString local;
+    };
+
     struct Transfer {
         SftpRequest request;
+        // The files still to go, the one under way first
+        QList<Item> items;
+        bool prepared = false;
         sftp_file file = nullptr;
         QSaveFile *download = nullptr;
         QFile *upload = nullptr;
+        // What it makes on the phone, a file or a folder
         QString localPath;
         qint64 total = 0;
         qint64 bytes = 0;
-        // Requested from the server, ahead of bytes
+        // Of the file under way
+        qint64 itemBytes = 0;
+        // Requested from the server, ahead of itemBytes
         qint64 requested = 0;
         QQueue<Read> pending;
         bool eof = false;
@@ -100,7 +113,12 @@ private:
     QString errorString(const QString &what) const;
     QString canonical(const QString &path, QString *error);
     void list(const SftpRequest &request);
-    bool startTransfer(Transfer *transfer);
+    // Finds the files of a folder and makes its folders, blocking for a while
+    bool prepareTransfer(Transfer *transfer);
+    bool listRemoteFolder(Transfer *transfer, const QString &remote, const QString &local);
+    bool openItem(Transfer *transfer);
+    // Done with the file under way, a failed one only when stopping
+    void closeItem(Transfer *transfer);
     void serviceTransfer(Transfer *transfer);
     void serviceDownload(Transfer *transfer);
     void serviceUpload(Transfer *transfer);

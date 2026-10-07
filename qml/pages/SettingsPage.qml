@@ -7,6 +7,12 @@ Page {
     readonly property int defaultFontSize: Theme.fontSizeExtraSmall
     property string hostsMessage
 
+    Connections {
+        target: backup
+        onExported: page.hostsMessage = error.length > 0 ? error : qsTr("Saved the backup to %1").arg(path)
+        onImported: page.hostsMessage = error.length > 0 ? error : summary
+    }
+
     allowedOrientations: Orientation.All
 
     SilicaFlickable {
@@ -30,6 +36,24 @@ Page {
                 label: qsTr("Color scheme")
                 value: colorSchemes.name(appSettings.terminalColorScheme)
                 onClicked: pageStack.animatorPush(Qt.resolvedUrl("ColorSchemesPage.qml"))
+            }
+
+            ComboBox {
+                width: parent.width
+                label: qsTr("Font")
+                description: qsTr("Symbols for prompts such as starship come from Nerd Fonts whatever the font")
+                currentIndex: Math.max(0, terminalFonts.indexOf(appSettings.terminalFontFamily.length > 0
+                                                                ? appSettings.terminalFontFamily : terminalFontFamily))
+                menu: ContextMenu {
+                    Repeater {
+                        model: terminalFonts
+                        MenuItem {
+                            text: modelData
+                            font.family: modelData
+                        }
+                    }
+                }
+                onCurrentIndexChanged: appSettings.terminalFontFamily = currentIndex > 0 ? terminalFonts[currentIndex] : ""
             }
 
             Slider {
@@ -59,6 +83,28 @@ Page {
                 label: qsTr("Toolbar keys")
                 value: appSettings.toolbarKeys.length
                 onClicked: pageStack.animatorPush(Qt.resolvedUrl("ToolbarKeysPage.qml"))
+            }
+
+            TextSwitch {
+                text: qsTr("Toolbar at the top")
+                description: qsTr("Instead of above the keyboard")
+                automaticCheck: false
+                checked: appSettings.toolbarAtTop
+                onClicked: appSettings.toolbarAtTop = !checked
+            }
+
+            TextSwitch {
+                text: qsTr("Connection name in landscape")
+                description: qsTr("Turn off for one more row of terminal when the phone is on its side")
+                automaticCheck: false
+                checked: appSettings.nameBarInLandscape
+                onClicked: appSettings.nameBarInLandscape = !checked
+            }
+
+            ValueButton {
+                label: qsTr("Snippets")
+                value: appSettings.snippets.length
+                onClicked: pageStack.animatorPush(Qt.resolvedUrl("SnippetsPage.qml"))
             }
 
             TextSwitch {
@@ -98,10 +144,51 @@ Page {
                 onClicked: appSettings.autoReconnect = !checked
             }
 
+            TextSwitch {
+                text: qsTr("Show typing ahead over mosh")
+                description: qsTr("On slow connections, typed text shows underlined until the server echoes it")
+                automaticCheck: false
+                checked: appSettings.moshPrediction
+                onClicked: appSettings.moshPrediction = !checked
+            }
+
             ValueButton {
                 label: qsTr("Known hosts")
                 value: knownHosts.count
                 onClicked: pageStack.animatorPush(Qt.resolvedUrl("KnownHostsPage.qml"))
+            }
+
+            SectionHeader {
+                text: qsTr("Security")
+            }
+
+            TextSwitch {
+                text: qsTr("Lock the app")
+                description: qsTr("Asks for a code before showing connections, also after a while in the background")
+                automaticCheck: false
+                checked: appSettings.lockEnabled
+                onClicked: {
+                    if (checked)
+                        appSettings.setLockCode("")
+                    else
+                        pageStack.animatorPush(Qt.resolvedUrl("LockCodeDialog.qml"))
+                }
+            }
+
+            ComboBox {
+                width: parent.width
+                visible: appSettings.lockEnabled
+                label: qsTr("Lock after")
+                readonly property var minutes: [0, 1, 5, 15, 60]
+                currentIndex: Math.max(0, minutes.indexOf(appSettings.lockDelay))
+                menu: ContextMenu {
+                    MenuItem { text: qsTr("Leaving the app") }
+                    MenuItem { text: qsTr("1 minute") }
+                    MenuItem { text: qsTr("5 minutes") }
+                    MenuItem { text: qsTr("15 minutes") }
+                    MenuItem { text: qsTr("1 hour") }
+                }
+                onCurrentIndexChanged: appSettings.lockDelay = minutes[currentIndex]
             }
 
             SectionHeader {
@@ -127,6 +214,19 @@ Page {
                                                                    : qsTr("Read %1 hosts").arg(dialog.imported)
                     })
                 }
+            }
+
+            ValueButton {
+                label: qsTr("Back up everything")
+                description: qsTr("Hosts, keys, saved passwords, snippets and settings in one encrypted file")
+                enabled: !backup.busy
+                onClicked: pageStack.animatorPush(Qt.resolvedUrl("BackupDialog.qml"))
+            }
+
+            ValueButton {
+                label: qsTr("Restore a backup")
+                enabled: !backup.busy
+                onClicked: pageStack.animatorPush(Qt.resolvedUrl("RestoreDialog.qml"))
             }
 
             Label {

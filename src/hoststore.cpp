@@ -63,6 +63,10 @@ QVariant HostStore::data(const QModelIndex &index, int role) const
     case HasPasswordRole: return host.hasPassword;
     case SystemIdRole: return host.systemId;
     case SystemNameRole: return host.systemName;
+    case GroupRole: return host.group;
+    case FavoriteRole: return host.favorite;
+    case LastUsedRole: return host.lastUsed;
+    case MacAddressRole: return host.macAddress;
     default: return QVariant();
     }
 }
@@ -79,6 +83,10 @@ QHash<int, QByteArray> HostStore::roleNames() const
     roles[HasPasswordRole] = "hasPassword";
     roles[SystemIdRole] = "systemId";
     roles[SystemNameRole] = "systemName";
+    roles[GroupRole] = "group";
+    roles[FavoriteRole] = "favorite";
+    roles[LastUsedRole] = "lastUsed";
+    roles[MacAddressRole] = "macAddress";
     return roles;
 }
 
@@ -118,6 +126,10 @@ QString HostStore::saveHost(const QString &hostId, const QString &name,
     host.keepAliveInterval = seconds(options.value(QStringLiteral("keepAliveInterval")), MaxKeepAliveInterval);
     host.connectTimeout = seconds(options.value(QStringLiteral("connectTimeout")), MaxConnectTimeout);
     host.mosh = options.value(QStringLiteral("mosh")).toBool();
+    host.moshServer = singleLine(options.value(QStringLiteral("moshServer")).toString());
+    host.group = singleLine(options.value(QStringLiteral("group")).toString());
+    host.macAddress = singleLine(options.value(QStringLiteral("macAddress")).toString());
+    host.logging = options.value(QStringLiteral("logging")).toBool();
 
     if (row >= 0) {
         m_hosts[row] = host;
@@ -214,6 +226,66 @@ void HostStore::removeHost(const QString &hostId)
         m_vault->remove(passwordSecretId(hostId), this, [](const QString &) {});
 }
 
+QString HostStore::duplicateHost(const QString &hostId)
+{
+    Host host;
+    if (!find(hostId, &host))
+        return QString();
+    if (m_hosts.size() >= MaxHosts) {
+        setError(tr("Too many hosts, %1 can be saved").arg(MaxHosts));
+        return QString();
+    }
+    QString name = tr("%1 copy").arg(host.name);
+    for (int i = 2; indexOfName(name) >= 0; ++i)
+        name = tr("%1 copy %2").arg(host.name).arg(i);
+    host.id = QUuid::createUuid().toString().remove(QRegExp(QStringLiteral("[{}-]")));
+    host.name = name;
+    host.hasPassword = false;
+    host.favorite = false;
+    host.lastUsed = QDateTime();
+    const int row = m_hosts.size();
+    beginInsertRows(QModelIndex(), row, row);
+    m_hosts.append(host);
+    endInsertRows();
+    save();
+    emit countChanged();
+    return host.id;
+}
+
+void HostStore::setFavorite(const QString &hostId, bool favorite)
+{
+    const int row = indexOf(hostId);
+    if (row < 0 || m_hosts.at(row).favorite == favorite)
+        return;
+    m_hosts[row].favorite = favorite;
+    save();
+    emit dataChanged(index(row), index(row), { FavoriteRole });
+}
+
+void HostStore::setKey(const QString &hostId, const QString &keyId)
+{
+    const int row = indexOf(hostId);
+    if (row < 0 || m_hosts.at(row).keyId == keyId)
+        return;
+    m_hosts[row].keyId = keyId;
+    save();
+    emit dataChanged(index(row), index(row));
+    if (m_hosts.at(row).hasPassword) {
+        setHasPassword(hostId, false);
+        m_vault->remove(passwordSecretId(hostId), this, [](const QString &) {});
+    }
+}
+
+void HostStore::markUsed(const QString &hostId)
+{
+    const int row = indexOf(hostId);
+    if (row < 0)
+        return;
+    m_hosts[row].lastUsed = QDateTime::currentDateTimeUtc();
+    save();
+    emit dataChanged(index(row), index(row), { LastUsedRole });
+}
+
 QVariantMap HostStore::host(const QString &hostId) const
 {
     QVariantMap map;
@@ -236,6 +308,11 @@ QVariantMap HostStore::host(const QString &hostId) const
     map.insert(QStringLiteral("keepAliveInterval"), host.keepAliveInterval);
     map.insert(QStringLiteral("connectTimeout"), host.connectTimeout);
     map.insert(QStringLiteral("mosh"), host.mosh);
+    map.insert(QStringLiteral("moshServer"), host.moshServer);
+    map.insert(QStringLiteral("group"), host.group);
+    map.insert(QStringLiteral("favorite"), host.favorite);
+    map.insert(QStringLiteral("macAddress"), host.macAddress);
+    map.insert(QStringLiteral("logging"), host.logging);
     return map;
 }
 
@@ -463,8 +540,12 @@ int HostStore::importConfig(const QString &config)
         options.insert(QStringLiteral("tmuxSession"), imported.tmuxSession);
         options.insert(QStringLiteral("keepAliveInterval"), imported.keepAliveInterval);
         options.insert(QStringLiteral("connectTimeout"), imported.connectTimeout);
-        // ssh_config has no mosh, so an updated host keeps its own
+        // ssh_config has none of these, so an updated host keeps its own
         options.insert(QStringLiteral("mosh"), row >= 0 && existing.mosh);
+        options.insert(QStringLiteral("moshServer"), existing.moshServer);
+        options.insert(QStringLiteral("group"), existing.group);
+        options.insert(QStringLiteral("macAddress"), existing.macAddress);
+        options.insert(QStringLiteral("logging"), row >= 0 && existing.logging);
         ids.append(saveHost(row >= 0 ? existing.id : QString(), imported.name, imported.address,
                             imported.port, imported.user, row >= 0 ? existing.keyId : QString(),
                             QString(), row >= 0 && existing.hasPassword, options));
@@ -483,6 +564,49 @@ int HostStore::importConfig(const QString &config)
     }
     save();
     return entries.size();
+}
+
+QVariantList HostStore::exportHosts() const
+{
+    QVariantList list;
+    for (const Host &host : m_hosts) {
+        QVariantMap map = this->host(host.id);
+        map.insert(QStringLiteral("id"), host.id);
+        map.insert(QStringLiteral("lastUsed"), host.lastUsed);
+        map.insert(QStringLiteral("systemId"), host.systemId);
+        map.insert(QStringLiteral("systemName"), host.systemName);
+        list.append(map);
+    }
+    return list;
+}
+
+void HostStore::restoreHost(const QVariantMap &map, bool hasPassword)
+{
+    const QString id = map.value(QStringLiteral("id")).toString();
+    if (id.isEmpty() || map.value(QStringLiteral("name")).toString().trimmed().isEmpty())
+        return;
+    int row = indexOf(id);
+    if (row < 0 && m_hosts.size() >= MaxHosts)
+        return;
+    m_batch = true;
+    // saveHost makes a new host with a new id, which then becomes the old one
+    const QString saved = saveHost(row >= 0 ? id : QString(), map.value(QStringLiteral("name")).toString(),
+                                   map.value(QStringLiteral("address")).toString(),
+                                   map.value(QStringLiteral("port")).toInt(), map.value(QStringLiteral("user")).toString(),
+                                   map.value(QStringLiteral("keyId")).toString(), QString(), true, map);
+    m_batch = false;
+    row = indexOf(saved);
+    if (row < 0)
+        return;
+    Host &host = m_hosts[row];
+    host.id = id;
+    host.hasPassword = hasPassword && host.keyId.isEmpty();
+    host.favorite = map.value(QStringLiteral("favorite")).toBool();
+    host.lastUsed = map.value(QStringLiteral("lastUsed")).toDateTime();
+    host.systemId = map.value(QStringLiteral("systemId")).toString();
+    host.systemName = map.value(QStringLiteral("systemName")).toString();
+    save();
+    emit dataChanged(index(row), index(row));
 }
 
 bool HostStore::find(const QString &hostId, Host *host) const
@@ -552,6 +676,12 @@ void HostStore::load()
         host.keepAliveInterval = seconds(m_settings.value(QStringLiteral("keepAliveInterval")), MaxKeepAliveInterval);
         host.connectTimeout = seconds(m_settings.value(QStringLiteral("connectTimeout")), MaxConnectTimeout);
         host.mosh = m_settings.value(QStringLiteral("mosh"), false).toBool();
+        host.moshServer = m_settings.value(QStringLiteral("moshServer")).toString();
+        host.group = m_settings.value(QStringLiteral("group")).toString();
+        host.favorite = m_settings.value(QStringLiteral("favorite"), false).toBool();
+        host.lastUsed = m_settings.value(QStringLiteral("lastUsed")).toDateTime();
+        host.macAddress = m_settings.value(QStringLiteral("macAddress")).toString();
+        host.logging = m_settings.value(QStringLiteral("logging"), false).toBool();
         host.systemId = m_settings.value(QStringLiteral("systemId")).toString();
         host.systemName = m_settings.value(QStringLiteral("systemName")).toString();
         if (host.id.isEmpty())
@@ -585,6 +715,12 @@ void HostStore::save()
         m_settings.setValue(QStringLiteral("keepAliveInterval"), host.keepAliveInterval);
         m_settings.setValue(QStringLiteral("connectTimeout"), host.connectTimeout);
         m_settings.setValue(QStringLiteral("mosh"), host.mosh);
+        m_settings.setValue(QStringLiteral("moshServer"), host.moshServer);
+        m_settings.setValue(QStringLiteral("group"), host.group);
+        m_settings.setValue(QStringLiteral("favorite"), host.favorite);
+        m_settings.setValue(QStringLiteral("lastUsed"), host.lastUsed);
+        m_settings.setValue(QStringLiteral("macAddress"), host.macAddress);
+        m_settings.setValue(QStringLiteral("logging"), host.logging);
         m_settings.setValue(QStringLiteral("systemId"), host.systemId);
         m_settings.setValue(QStringLiteral("systemName"), host.systemName);
     }

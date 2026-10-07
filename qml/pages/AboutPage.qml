@@ -27,6 +27,20 @@ Page {
             file: "../../fonts/LICENSE.md"
         },
         {
+            name: "Nerd Fonts",
+            description: qsTr("Symbols for prompts and file listings, the icon sets keep their own licenses"),
+            license: "MIT",
+            url: "https://www.nerdfonts.com/",
+            file: "../../fonts/NerdFonts-LICENSE.txt"
+        },
+        {
+            name: "QR Code generator",
+            description: qsTr("QR codes of host key fingerprints, by Project Nayuki"),
+            license: "MIT",
+            url: "https://www.nayuki.io/page/qr-code-generator-library",
+            file: "../../licenses/qrcodegen.txt"
+        },
+        {
             name: "Devicon",
             description: qsTr("Operating system logos, which are trademarks of their owners"),
             license: "MIT",

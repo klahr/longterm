@@ -10,7 +10,9 @@ Page {
 
     allowedOrientations: Orientation.All
 
-    readonly property bool canConnect: addressField.text.length > 0 && userField.text.length > 0
+    readonly property bool macValid: macField.text.trim().length === 0
+                                     || /^([0-9A-Fa-f]{2}[:\-]?){5}[0-9A-Fa-f]{2}$/.test(macField.text.trim())
+    readonly property bool canConnect: addressField.text.length > 0 && userField.text.length > 0 && macValid
                                        && portField.acceptableInput && forwardsValid && remoteForwardsValid
                                        && socksValid && environmentValid
                                        && (keepAliveField.text.length === 0 || keepAliveField.acceptableInput)
@@ -74,8 +76,8 @@ Page {
         return true
     }
 
-    function save() {
-        var options = {
+    function options() {
+        return {
             jumpHostId: jumpHostId,
             forwardAgent: agentSwitch.checked,
             localForwards: localForwards,
@@ -85,11 +87,18 @@ Page {
             tmuxSession: tmuxSwitch.checked ? tmuxField.text.trim() : "",
             keepAliveInterval: keepAliveField.text.length > 0 ? parseInt(keepAliveField.text) : 0,
             connectTimeout: timeoutField.text.length > 0 ? parseInt(timeoutField.text) : 0,
-            mosh: moshSwitch.checked
+            mosh: moshSwitch.checked,
+            moshServer: moshServerField.text.trim(),
+            group: groupField.text.trim(),
+            macAddress: macField.text.trim(),
+            logging: loggingSwitch.checked
         }
+    }
+
+    function save() {
         return hostStore.saveHost(hostId, nameField.text, addressField.text,
                                   parseInt(portField.text), userField.text, keyId,
-                                  passwordField.text, rememberSwitch.checked, options)
+                                  passwordField.text, rememberSwitch.checked, options())
     }
 
     function connect() {
@@ -97,12 +106,12 @@ Page {
             return
         var id = canSave ? save() : ""
         var session
-        // Saved hosts bring their jump host and forwards along
+        // Saved hosts read their settings back from the store, one-off connections get them here
         if (id.length > 0)
             session = sessionManager.openHost(id, keyId.length === 0 ? passwordField.text : "")
         else
             session = sessionManager.openSession(nameField.text.trim(), addressField.text, parseInt(portField.text),
-                                                 userField.text, passwordField.text, keyId)
+                                                 userField.text, passwordField.text, keyId, options())
         // The start page keeps the sessions attached to its right
         var startPage = pageStack.previousPage(page)
         pageStack.pop(startPage, PageStackAction.Immediate)
@@ -132,6 +141,10 @@ Page {
         keepAliveField.text = host.keepAliveInterval > 0 ? host.keepAliveInterval : ""
         timeoutField.text = host.connectTimeout > 0 ? host.connectTimeout : ""
         moshSwitch.checked = host.mosh
+        moshServerField.text = host.moshServer
+        groupField.text = host.group
+        macField.text = host.macAddress
+        loggingSwitch.checked = host.logging
     }
 
     SilicaFlickable {
@@ -225,14 +238,15 @@ Page {
                 text: qsTr("Advanced")
             }
 
-            Label {
-                x: Theme.horizontalPageMargin
-                width: parent.width - 2 * Theme.horizontalPageMargin
-                visible: nameField.text.trim().length === 0
-                text: qsTr("These take effect for saved hosts, give the host a name to use them.")
-                wrapMode: Text.Wrap
-                font.pixelSize: Theme.fontSizeExtraSmall
-                color: Theme.secondaryHighlightColor
+            TextField {
+                id: groupField
+                width: parent.width
+                visible: nameField.text.trim().length > 0
+                label: qsTr("Group")
+                placeholderText: qsTr("Group, such as Work or Home")
+                description: qsTr("Hosts with the same group are listed together")
+                EnterKey.iconSource: "image://theme/icon-m-enter-close"
+                EnterKey.onClicked: focus = false
             }
 
             TextSwitch {
@@ -241,6 +255,18 @@ Page {
                 description: qsTr("The session stays through network changes and sleep, and typing does not wait for "
                                   + "the network. Needs mosh-server on the host and UDP ports 60000 to 61000 open to it, "
                                   + "without mosh-server it connects over SSH.")
+            }
+
+            TextField {
+                id: moshServerField
+                width: parent.width
+                visible: moshSwitch.checked
+                label: qsTr("mosh-server command")
+                placeholderText: qsTr("mosh-server, or a path such as /opt/homebrew/bin/mosh-server")
+                description: qsTr("For servers where mosh-server is not on the PATH of a non-interactive shell")
+                inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText | Qt.ImhUrlCharactersOnly
+                EnterKey.iconSource: "image://theme/icon-m-enter-close"
+                EnterKey.onClicked: focus = false
             }
 
             TextSwitch {
@@ -351,6 +377,23 @@ Page {
                 validator: IntValidator { bottom: 1; top: 3600 }
                 EnterKey.iconSource: "image://theme/icon-m-enter-next"
                 EnterKey.onClicked: timeoutField.focus = true
+            }
+
+            TextField {
+                id: macField
+                width: parent.width
+                label: page.macValid ? qsTr("MAC address for Wake-on-LAN") : qsTr("Use six pairs of hex digits, such as 00:11:22:33:44:55")
+                placeholderText: qsTr("MAC address, to wake the host before connecting")
+                errorHighlight: !page.macValid
+                inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
+                EnterKey.iconSource: "image://theme/icon-m-enter-next"
+                EnterKey.onClicked: timeoutField.focus = true
+            }
+
+            TextSwitch {
+                id: loggingSwitch
+                text: qsTr("Log the session")
+                description: qsTr("What scrolls off the terminal is written to a file in Documents/Longterm")
             }
 
             TextField {

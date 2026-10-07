@@ -2,6 +2,7 @@
 #define HOSTSTORE_H
 
 #include <QAbstractListModel>
+#include <QDateTime>
 #include <QList>
 #include <QSettings>
 #include <QStringList>
@@ -25,7 +26,11 @@ public:
         KeyIdRole,
         HasPasswordRole,
         SystemIdRole,
-        SystemNameRole
+        SystemNameRole,
+        GroupRole,
+        FavoriteRole,
+        LastUsedRole,
+        MacAddressRole
     };
 
     struct Host {
@@ -54,6 +59,17 @@ public:
         int connectTimeout = 0;
         // The terminal goes over mosh, the SSH connection only starts the server
         bool mosh = false;
+        // The command that starts it, empty for mosh-server on the PATH
+        QString moshServer;
+        // Hosts with the same group are listed together, empty for none
+        QString group;
+        // Listed first
+        bool favorite = false;
+        QDateTime lastUsed;
+        // Woken with a Wake-on-LAN packet before connecting, empty for none
+        QString macAddress;
+        // Lines that scroll off the terminal are written to a file in Documents
+        bool logging = false;
         QString systemId;
         QString systemName;
     };
@@ -76,6 +92,13 @@ public:
                                  const QString &keyId, const QString &password,
                                  bool rememberPassword, const QVariantMap &options);
     Q_INVOKABLE void removeHost(const QString &hostId);
+    // A copy with a new name and without the remembered password, returns its id
+    Q_INVOKABLE QString duplicateHost(const QString &hostId);
+    Q_INVOKABLE void setFavorite(const QString &hostId, bool favorite);
+    // Logs in with the key from now on, forgetting any remembered password
+    void setKey(const QString &hostId, const QString &keyId);
+    // Connecting to a host moves it up the list
+    void markUsed(const QString &hostId);
     // Keeps a password typed while connecting, the host logs in with it from now on
     void rememberPassword(const QString &hostId, const QString &password);
     // Hosts that used the deleted key ask for a password instead
@@ -91,6 +114,10 @@ public:
     Q_INVOKABLE int importConfig(const QString &config);
 
     bool find(const QString &hostId, Host *host) const;
+    // Every host with everything about it but the password, for backups
+    QVariantList exportHosts() const;
+    // Adds a host from exportHosts(), replacing the one with the same id
+    void restoreHost(const QVariantMap &map, bool hasPassword);
     static QString passwordSecretId(const QString &hostId);
 
 signals:

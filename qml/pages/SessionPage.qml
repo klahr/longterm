@@ -38,6 +38,24 @@ Page {
         Qt.inputMethod.show()
     }
 
+    // Hardware keyboard shortcuts for the app, see TerminalView::shortcut
+    function handleShortcut(name) {
+        if (name === "next" || name === "previous") {
+            var count = sessionList.count
+            if (count > 1)
+                showIndex((sessionList.currentIndex + (name === "next" ? 1 : count - 1)) % count)
+        } else if (name === "find") {
+            startSearch()
+        } else if (name === "menu" && currentView) {
+            pageStack.animatorPush(Qt.resolvedUrl("SessionMenuPage.qml"),
+                                   { session: page.session, sessionPage: page, terminalView: currentView })
+        } else if (name === "new") {
+            var start = pageStack.previousPage(page)
+            pageStack.pop(start, PageStackAction.Immediate)
+            pageStack.animatorPush(Qt.resolvedUrl("HostPage.qml"))
+        }
+    }
+
     function showSession(otherSession) {
         visibleSessions.keep = otherSession
         showIndex(visibleSessions.indexOf(otherSession))
@@ -116,7 +134,7 @@ Page {
     // Fills the display notch margin and the name bar in the session's colors
     Rectangle {
         anchors {
-            top: parent.top
+            top: appSettings.toolbarAtTop ? keyBar.bottom : parent.top
             left: parent.left
             right: parent.right
             bottom: searchBar.top
@@ -128,12 +146,12 @@ Page {
         id: sessionList
 
         anchors {
-            top: parent.top
+            top: appSettings.toolbarAtTop ? keyBar.bottom : parent.top
             left: parent.left
             right: parent.right
             bottom: searchBar.top
             // Keep text and overlays out from under the display notch
-            topMargin: page.orientation === Orientation.Portrait ? Screen.topCutout.height : 0
+            topMargin: page.orientation === Orientation.Portrait && !appSettings.toolbarAtTop ? Screen.topCutout.height : 0
             leftMargin: page.orientation === Orientation.Landscape ? Screen.topCutout.height : 0
             rightMargin: page.orientation === Orientation.LandscapeInverted ? Screen.topCutout.height : 0
         }
@@ -174,7 +192,9 @@ Page {
                 id: nameBar
 
                 width: parent.width
-                height: nameLabel.implicitHeight + Theme.paddingSmall
+                // Landscape is short of rows, so the bar can go there
+                visible: page.isPortrait || appSettings.nameBarInLandscape
+                height: visible ? nameLabel.implicitHeight + Theme.paddingSmall : 0
                 // Swiping between sessions shows each bar in its own scheme
                 color: colorSchemes.background(delegateItem.schemeId)
 
@@ -209,7 +229,8 @@ Page {
                     bottom: parent.bottom
                 }
                 terminal: session.terminal
-                fontFamily: terminalFontFamily
+                onShortcut: page.handleShortcut(name)
+                fontFamily: appSettings.terminalFontFamily.length > 0 ? appSettings.terminalFontFamily : terminalFontFamily
                 fontPixelSize: appSettings.terminalFontSize > 0 ? appSettings.terminalFontSize : Theme.fontSizeExtraSmall
                 colorScheme: delegateItem.schemeId
 
@@ -337,7 +358,8 @@ Page {
                         // mosh keeps the session through the silence, this only says how long it has been
                         case SshSession.Connected:
                             return session.silentSeconds > 0
-                                    ? qsTr("No contact with the server for %n seconds", "", session.silentSeconds) : ""
+                                    ? qsTr("No contact with the server for %n seconds", "", session.silentSeconds)
+                                    : session.notice
                         default: return session.errorString.length > 0 ? session.errorString : qsTr("Disconnected")
                         }
                     }
@@ -588,7 +610,7 @@ Page {
         anchors {
             left: parent.left
             right: parent.right
-            bottom: keyBar.top
+            bottom: appSettings.toolbarAtTop ? parent.bottom : keyBar.top
         }
         height: page.searching ? searchField.height : 0
         visible: page.searching
@@ -638,17 +660,48 @@ Page {
         // Keys share the width while they fit, beyond that the row scrolls
         readonly property real keyWidth: Math.max(width / (keys.length + 1), Theme.itemSizeExtraSmall * 0.75)
 
+        // When a modifier was last tapped, a second tap soon after locks it
+        property var lastModifierTap: ({})
+
+        function pressModifier(view, name) {
+            var now = Date.now()
+            var quick = lastModifierTap[name] !== undefined && now - lastModifierTap[name] < 400
+            lastModifierTap[name] = now
+            var locked = name === "ctrl" ? view.ctrlLocked : view.altLocked
+            var latched = name === "ctrl" ? view.ctrlLatched : view.altLatched
+            if (locked) {
+                locked = false
+                latched = false
+            } else if (latched && quick) {
+                locked = true
+                latched = false
+            } else {
+                latched = !latched
+            }
+            if (name === "ctrl") {
+                view.ctrlLocked = locked
+                view.ctrlLatched = latched
+            } else {
+                view.altLocked = locked
+                view.altLatched = latched
+            }
+        }
+
         function press(key) {
             var view = page.currentView
             if (!view)
                 return
-            if (key.modifier === "ctrl")
-                view.ctrlLatched = !view.ctrlLatched
-            else if (key.modifier === "alt")
-                view.altLatched = !view.altLatched
+            if (key.modifier !== undefined)
+                pressModifier(view, key.modifier)
             else if (key.action === "menu")
                 pageStack.animatorPush(Qt.resolvedUrl("SessionMenuPage.qml"),
                                        { session: page.session, sessionPage: page, terminalView: view })
+            else if (key.action === "snippets")
+                pageStack.animatorPush(Qt.resolvedUrl("SnippetPickerPage.qml"), { session: page.session, terminalView: view })
+            else if (key.action === "history")
+                pageStack.animatorPush(Qt.resolvedUrl("HistoryPage.qml"), { session: page.session, terminalView: view })
+            else if (key.action === "arrows")
+                return
             else if (key.key !== undefined)
                 view.sendKey(key.key)
             else
@@ -658,7 +711,9 @@ Page {
         anchors {
             left: parent.left
             right: parent.right
-            bottom: parent.bottom
+            top: appSettings.toolbarAtTop ? parent.top : undefined
+            bottom: appSettings.toolbarAtTop ? undefined : parent.bottom
+            topMargin: appSettings.toolbarAtTop && page.orientation === Orientation.Portrait ? Screen.topCutout.height : 0
         }
         height: Theme.itemSizeExtraSmall
 

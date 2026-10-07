@@ -1,7 +1,7 @@
 // Connects to a real SSH server on 127.0.0.1 port 22 as tester with the
-// password secret. The server needs AcceptEnv LONGTERM_*, TCP forwarding,
-// mosh-server, tmux and nc. Run it somewhere disposable, it changes the
-// tester account's home folder and kills its tmux and mosh servers.
+// password secret, set up by run.sh in the image of the Dockerfile next to
+// this. Run it somewhere disposable, it changes the tester account's home
+// folder and kills its tmux and mosh servers.
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
@@ -19,7 +19,13 @@
 #include <cstdio>
 #include <functional>
 
+#include "appsettings.h"
+#include "backup.h"
+#include "colorschemes.h"
+#include "hoststore.h"
+#include "keystore.h"
 #include "secretvault.h"
+#include "sessionmanager.h"
 #include "sftpbrowser.h"
 #include "sshsession.h"
 #include "terminal.h"
@@ -403,6 +409,279 @@ static void testMosh()
     run(QStringLiteral("chmod +x /usr/bin/mosh-server"));
 }
 
+static QString secretsDir()
+{
+    return QString::fromLocal8Bit(qgetenv("LONGTERM_TEST_SECRETS"));
+}
+
+static QByteArray readFile(const QString &path)
+{
+    QFile file(path);
+    file.open(QIODevice::ReadOnly);
+    return file.readAll();
+}
+
+static void testAgentStatus()
+{
+    // A question with answers, through the terminal of a plain connection
+    SshSession *session = connectWith(SshOptions());
+    QSignalSpy asked(session->terminal(), &Terminal::questionAsked);
+    type(session, "longterm-status ask Claude 'May I; please' 'Yes=1' 'No=\\e'");
+    CHECK(waitFor([&]() { return asked.count() == 1; }, 10000), "no question");
+    const QVariantList replies = asked.value(0).value(2).toList();
+    CHECK(asked.value(0).value(0).toString() == QLatin1String("Claude") && asked.value(0).value(1).toString() == QLatin1String("May I; please"),
+          "question: %s / %s", qPrintable(asked.value(0).value(0).toString()), qPrintable(asked.value(0).value(1).toString()));
+    CHECK(replies.size() == 2 && replies.at(0).toMap().value(QStringLiteral("keys")).toString() == QLatin1String("1")
+          && replies.at(1).toMap().value(QStringLiteral("keys")).toString() == QLatin1String("\x1b"), "replies wrong");
+    disconnect(session);
+
+    // Under mosh the status goes through the file the app follows
+    SshOptions options;
+    options.mosh = true;
+    session = connectWith(options);
+    CHECK(session->usesMosh(), "not over mosh");
+    type(session, "longterm-status working 'via the file'");
+    CHECK(waitFor([&]() { return session->terminal()->activity() == QLatin1String("working")
+                                 && session->terminal()->activityDetail() == QLatin1String("via the file"); }, 15000),
+          "no status under mosh: '%s'", qPrintable(session->terminal()->activity()));
+    disconnect(session);
+
+    // And inside tmux under mosh, which finds the file in the tmux session
+    run(QStringLiteral("su tester -c 'tmux kill-server' 2>/dev/null"));
+    options.tmuxSession = QStringLiteral("agents");
+    session = connectWith(options);
+    CHECK(shows(session, QStringLiteral("[agents]")), "no tmux: %s", qPrintable(screen(session)));
+    type(session, "longterm-status waiting 'in tmux'");
+    CHECK(waitFor([&]() { return session->terminal()->activity() == QLatin1String("waiting"); }, 15000),
+          "no status from tmux under mosh");
+    disconnect(session);
+    run(QStringLiteral("su tester -c 'tmux kill-server' 2>/dev/null"));
+}
+
+static void testSideConnection()
+{
+    // The SSH connection under mosh goes, the terminal stays and files come back
+    SshOptions options;
+    options.mosh = true;
+    SshSession *session = connectWith(options);
+    CHECK(session->filesAvailable(), "no files at first");
+    run(QStringLiteral("pkill -f 'sshd-session: tester'"));
+    CHECK(waitFor([&]() { return !session->filesAvailable(); }, 120000), "SSH connection did not drop");
+    type(session, "echo still-typing");
+    CHECK(shows(session, QStringLiteral("still-typing")), "terminal gone with SSH: %s", qPrintable(screen(session)));
+    CHECK(waitFor([&]() { return session->filesAvailable(); }, 30000), "files did not come back");
+    session->files()->open(QString());
+    CHECK(waitFor([&]() { return session->files()->path() == QLatin1String("/home/tester"); }, 10000),
+          "files after reconnecting: %s", qPrintable(session->files()->errorString()));
+    disconnect(session);
+}
+
+static void testResume()
+{
+    run(QStringLiteral("pkill mosh-server"));
+    SecretVault vault;
+    SshOptions options;
+    options.mosh = true;
+    const auto open = [&]() {
+        SshSession *session = new SshSession(QStringLiteral("test"), QStringLiteral("127.0.0.1"), 22, QStringLiteral("tester"));
+        session->terminal()->resize(30, 100);
+        session->setOptions(options);
+        session->setSessionId(QStringLiteral("resumetest"));
+        session->setMoshVault(&vault);
+        session->connectToHost(QStringLiteral("secret"));
+        waitFor([&]() { return session->state() == SshSession::Connected || !session->errorString().isEmpty(); }, 30000);
+        return session;
+    };
+
+    SshSession *session = open();
+    CHECK(session->usesMosh(), "not over mosh");
+    type(session, "echo before-the-re''start");
+    CHECK(shows(session, QStringLiteral("before-the-restart")), "no output");
+    waitFor([]() { return false; }, 500);
+    // The app quits, the mosh session stays on the server
+    delete session;
+    CHECK(QFile::exists(secretsDir() + QStringLiteral("/moshresumetest")), "mosh key not kept");
+    CHECK(run(QStringLiteral("pgrep -c mosh-server")) == QLatin1String("1"), "mosh-server ended with the app");
+
+    session = open();
+    CHECK(session->usesMosh() && session->state() == SshSession::Connected, "not resumed: %s", qPrintable(session->errorString()));
+    CHECK(shows(session, QStringLiteral("before-the-restart")), "screen not restored: %s", qPrintable(screen(session)));
+    type(session, "echo after-the-re''start");
+    CHECK(shows(session, QStringLiteral("after-the-restart")), "typing after resuming: %s", qPrintable(screen(session)));
+    CHECK(run(QStringLiteral("pgrep -c mosh-server")) == QLatin1String("1"), "a second mosh-server started");
+    CHECK(waitFor([&]() { return session->filesAvailable(); }, 30000), "no files next to the resumed session");
+    disconnect(session);
+    CHECK(waitFor([]() { return run(QStringLiteral("pgrep -c mosh-server")) == QLatin1String("0"); }, 5000),
+          "mosh-server left after disconnecting");
+    CHECK(!QFile::exists(secretsDir() + QStringLiteral("/moshresumetest")), "mosh key left after disconnecting");
+
+    // A session gone from the server, as after a reboot, gets a new connection instead
+    session = open();
+    delete session;
+    run(QStringLiteral("pkill -9 mosh-server"));
+    session = open();
+    CHECK(waitFor([&]() { return session->state() == SshSession::Connected && session->usesMosh()
+                                 && screen(session).contains(QLatin1String("gone from the server"))
+                                 && run(QStringLiteral("pgrep -c mosh-server")) == QLatin1String("1"); }, 60000),
+          "no new connection after the session was gone: %s", qPrintable(screen(session)));
+    disconnect(session);
+}
+
+static void testFolders()
+{
+    run(QStringLiteral("rm -rf /home/tester/tree /home/tester/uploaded && su tester -c 'mkdir -p ~/tree/sub/deeper && echo one > ~/tree/a.txt"
+                       " && echo two > ~/tree/sub/b.txt && head -c 300000 /dev/urandom > ~/tree/sub/deeper/c.bin && : > ~/tree/empty'"));
+    SshSession *session = connectWith(SshOptions());
+    SftpBrowser *files = session->files();
+    files->open(QString());
+    waitFor([&]() { return !files->loading(); }, 10000);
+    const QString downloads = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    QDir(downloads + QStringLiteral("/tree")).removeRecursively();
+    QSignalSpy finished(files, &SftpBrowser::transferFinished);
+    files->download(QStringLiteral("/home/tester/tree"));
+    CHECK(waitFor([&]() { return finished.count() == 1; }, 60000), "folder download did not finish");
+    CHECK(finished.value(0).value(3).toString().isEmpty(), "folder download: %s", qPrintable(finished.value(0).value(3).toString()));
+    const QString local = finished.value(0).value(2).toString();
+    CHECK(local == downloads + QStringLiteral("/tree"), "went to %s", qPrintable(local));
+    CHECK(readFile(local + QStringLiteral("/a.txt")) == "one\n" && readFile(local + QStringLiteral("/sub/b.txt")) == "two\n",
+          "small files differ");
+    CHECK(QCryptographicHash::hash(readFile(local + QStringLiteral("/sub/deeper/c.bin")), QCryptographicHash::Sha256).toHex()
+          == run(QStringLiteral("sha256sum /home/tester/tree/sub/deeper/c.bin | cut -d' ' -f1")).toLatin1(), "big file differs");
+    CHECK(QFile::exists(local + QStringLiteral("/empty")), "empty file missing");
+
+    // The same folder back up under another name
+    QDir(local).rename(local, downloads + QStringLiteral("/uploaded"));
+    files->upload(downloads + QStringLiteral("/uploaded"), QStringLiteral("/home/tester"), false);
+    CHECK(waitFor([&]() { return finished.count() == 2; }, 60000), "folder upload did not finish");
+    CHECK(finished.value(1).value(3).toString().isEmpty(), "folder upload: %s", qPrintable(finished.value(1).value(3).toString()));
+    CHECK(run(QStringLiteral("cd /home/tester && diff -r tree uploaded && echo same")) == QLatin1String("same"), "uploaded folder differs");
+    QDir(downloads + QStringLiteral("/uploaded")).removeRecursively();
+    disconnect(session);
+}
+
+static void testInstallKeyAndBackup()
+{
+    AppSettings settings;
+    SecretVault vault;
+    HostStore hosts(&vault);
+    KeyStore keys(&vault);
+    ColorSchemes schemes;
+    SessionManager manager(&vault, &hosts, &keys, &settings);
+    for (int row = hosts.count() - 1; row >= 0; --row)
+        hosts.removeHost(hosts.hostIdAt(row));
+
+    const QString hostId = hosts.saveHost(QString(), QStringLiteral("installhost"), QStringLiteral("127.0.0.1"), 22,
+                                          QStringLiteral("tester"), QString(), QStringLiteral("secret"), true, QVariantMap());
+    CHECK(waitFor([&]() { return hosts.host(hostId).value(QStringLiteral("hasPassword")).toBool(); }, 5000), "password not kept");
+    const int keysBefore = keys.count();
+    keys.generateKey(QStringLiteral("phone key"), QStringLiteral("ed25519"));
+    CHECK(waitFor([&]() { return keys.count() == keysBefore + 1; }, 20000), "no key made: %s", qPrintable(keys.errorString()));
+    const QString keyId = keys.keyIdAt(keys.count() - 1);
+
+    for (int round = 0; round < 2; ++round) {
+        SshSession *session = manager.installKey(hostId, keyId, true);
+        QSignalSpy finished(session, &SshSession::commandFinished);
+        CHECK(waitFor([&]() { return finished.count() == 1; }, 30000), "install did not finish: %s", qPrintable(screen(session)));
+        CHECK(finished.value(0).value(0).toInt() == 0, "install failed: %s", qPrintable(screen(session)));
+        CHECK(shows(session, QStringLiteral("The key is installed")), "%s", qPrintable(screen(session)));
+        manager.closeSession(session);
+    }
+    CHECK(run(QStringLiteral("grep -c 'phone key' /home/tester/.ssh/authorized_keys")) == QLatin1String("1"),
+          "key installed %s times", qPrintable(run(QStringLiteral("grep -c 'phone key' /home/tester/.ssh/authorized_keys"))));
+    CHECK(hosts.host(hostId).value(QStringLiteral("keyId")).toString() == keyId, "host does not use the key");
+    CHECK(!hosts.host(hostId).value(QStringLiteral("hasPassword")).toBool(), "password kept with a key");
+    SshSession *session = manager.openHost(hostId);
+    CHECK(waitFor([&]() { return session->state() == SshSession::Connected; }, 20000), "key login: %s", qPrintable(session->errorString()));
+    manager.closeSession(session);
+
+    // A certificate signed by the CA the server trusts logs in with a key it does not list
+    const QString certificate = QString::fromLatin1(readFile(secretsDir() + QStringLiteral("/key2-cert.pub")));
+    keys.importKey(QStringLiteral("ca key"), QString::fromLatin1(readFile(secretsDir() + QStringLiteral("/key2"))), QString());
+    CHECK(waitFor([&]() { return keys.count() == keysBefore + 2; }, 20000), "key not imported: %s", qPrintable(keys.errorString()));
+    const QString caKeyId = keys.keyIdAt(keys.count() - 1);
+    CHECK(!keys.checkCertificate(keyId, certificate).isEmpty(), "certificate taken for another key");
+    CHECK(keys.setCertificate(caKeyId, certificate).isEmpty(), "certificate refused: %s", qPrintable(keys.checkCertificate(caKeyId, certificate)));
+    const QString caHostId = hosts.saveHost(QString(), QStringLiteral("cahost"), QStringLiteral("127.0.0.1"), 22,
+                                            QStringLiteral("tester"), caKeyId, QString(), false, QVariantMap());
+    session = manager.openHost(caHostId);
+    CHECK(waitFor([&]() { return session->state() == SshSession::Connected; }, 20000), "certificate login: %s", qPrintable(session->errorString()));
+    manager.closeSession(session);
+    keys.setCertificate(caKeyId, QString());
+    session = manager.openHost(caHostId);
+    waitFor([&]() { return session->state() == SshSession::Connected || !session->errorString().isEmpty(); }, 20000);
+    CHECK(session->state() != SshSession::Connected, "logged in without the certificate");
+    manager.closeSession(session);
+    keys.setCertificate(caKeyId, certificate);
+
+    // Everything into a backup, gone, and back
+    Backup backup(&vault, &hosts, &keys, &settings, &schemes);
+    QSignalSpy exported(&backup, &Backup::exported);
+    backup.exportBackup(QStringLiteral("correct horse"));
+    CHECK(waitFor([&]() { return exported.count() == 1; }, 30000), "backup did not finish");
+    const QString path = exported.value(0).value(0).toString();
+    CHECK(!path.isEmpty(), "backup: %s", qPrintable(exported.value(0).value(1).toString()));
+    const QByteArray contents = readFile(path);
+    CHECK(!contents.contains("installhost") && !contents.contains("BEGIN OPENSSH"), "backup not encrypted");
+    hosts.removeHost(hostId);
+    hosts.removeHost(caHostId);
+    keys.removeKey(keyId);
+    keys.removeKey(caKeyId);
+    waitFor([]() { return false; }, 500);
+
+    QSignalSpy imported(&backup, &Backup::imported);
+    backup.importBackup(path, QStringLiteral("wrong horse"));
+    CHECK(waitFor([&]() { return imported.count() == 1; }, 30000), "wrong passphrase did not finish");
+    CHECK(!imported.value(0).value(1).toString().isEmpty() && hosts.indexOf(hostId) < 0, "wrong passphrase accepted");
+    backup.importBackup(path, QStringLiteral("correct horse"));
+    CHECK(waitFor([&]() { return imported.count() == 2; }, 30000), "restore did not finish");
+    CHECK(imported.value(1).value(1).toString().isEmpty(), "restore: %s", qPrintable(imported.value(1).value(1).toString()));
+    CHECK(waitFor([&]() { return hosts.indexOf(hostId) >= 0 && hosts.indexOf(caHostId) >= 0
+                                 && keys.indexOf(keyId) >= 0 && keys.indexOf(caKeyId) >= 0; }, 10000), "not restored");
+    CHECK(keys.certificateText(caKeyId) == certificate.simplified(), "certificate not restored");
+    session = manager.openHost(caHostId);
+    CHECK(waitFor([&]() { return session->state() == SshSession::Connected; }, 20000), "login after restore: %s", qPrintable(session->errorString()));
+    manager.closeSession(session);
+    QFile::remove(path);
+}
+
+static void testPrediction()
+{
+    SshOptions options;
+    options.mosh = true;
+    SshSession *session = connectWith(options);
+    // The loopback echoes at once, too quick to show anything otherwise
+    session->setPredictionMinRoundTrip(0);
+    CHECK(session->usesMosh(), "not over mosh");
+    CHECK(shows(session, QStringLiteral("~$")), "no prompt");
+    const auto typeSlowly = [&](const QByteArray &text, bool *predicted) {
+        for (const char c : text) {
+            emit session->terminal()->outputReady(QByteArray(1, c));
+            // Before the echo can come back
+            *predicted = *predicted || !session->terminal()->prediction().isEmpty();
+            for (int i = 0; i < 10; ++i) {
+                waitFor([]() { return false; }, 30);
+                *predicted = *predicted || !session->terminal()->prediction().isEmpty();
+            }
+        }
+    };
+    bool predicted = false;
+    typeSlowly("echo predicted-text", &predicted);
+    CHECK(predicted, "typing never showed ahead");
+    type(session, QByteArray());
+    CHECK(shows(session, QStringLiteral("\npredicted-text").mid(1)), "%s", qPrintable(screen(session)));
+    CHECK(waitFor([&]() { return session->terminal()->prediction().isEmpty(); }, 5000), "prediction left behind");
+
+    // Nothing typed at a prompt that does not echo may show
+    type(session, "read -s secret; echo \"got-$secret\"");
+    waitFor([]() { return false; }, 1000);
+    predicted = false;
+    typeSlowly("hunter2", &predicted);
+    CHECK(!predicted, "a password showed while typed");
+    type(session, QByteArray());
+    CHECK(shows(session, QStringLiteral("got-hunter2")), "%s", qPrintable(screen(session)));
+    disconnect(session);
+}
+
 static void testConnectTimeout()
 {
     SshOptions options;
@@ -438,6 +717,18 @@ int main(int argc, char **argv)
         testMosh();
     if (wanted("timeout"))
         testConnectTimeout();
+    if (wanted("status"))
+        testAgentStatus();
+    if (wanted("side"))
+        testSideConnection();
+    if (wanted("resume"))
+        testResume();
+    if (wanted("folders"))
+        testFolders();
+    if (wanted("install"))
+        testInstallKeyAndBackup();
+    if (wanted("prediction"))
+        testPrediction();
     std::printf(failures ? "%d FAILURES\n" : "OK\n", failures);
     return failures ? 1 : 0;
 }

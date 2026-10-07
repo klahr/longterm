@@ -11,8 +11,15 @@ Page {
     // Kept with its passphrase, asked for on every connect
     property bool encrypted
     property bool privateKeyCopied
+    property string certificate: keyStore.certificateText(keyId)
 
     allowedOrientations: Orientation.All
+
+    // Kept current as the certificate is added or removed from this page
+    Connections {
+        target: keyStore
+        onDataChanged: page.certificate = keyStore.certificateText(page.keyId)
+    }
 
     Connections {
         target: keyStore
@@ -29,6 +36,17 @@ Page {
         contentHeight: column.height
 
         PullDownMenu {
+            MenuItem {
+                text: page.certificate.length > 0 ? qsTr("Change certificate") : qsTr("Add certificate")
+                onClicked: pageStack.animatorPush(Qt.resolvedUrl("CertificateDialog.qml"),
+                                                  { keyId: page.keyId, certificate: page.certificate })
+            }
+            MenuItem {
+                text: qsTr("Install on a host")
+                enabled: hostStore.count > 0
+                onClicked: pageStack.animatorPush(Qt.resolvedUrl("InstallKeyPage.qml"),
+                                                  { keyId: page.keyId, keyName: page.name })
+            }
             MenuItem {
                 text: qsTr("Export private key")
                 onClicked: pageStack.animatorPush(Qt.resolvedUrl("ExportKeyDialog.qml"),
