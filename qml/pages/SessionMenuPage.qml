@@ -105,6 +105,18 @@ Page {
             }
 
             BackgroundItem {
+                onClicked: pageStack.animatorReplace(Qt.resolvedUrl("TextPage.qml"),
+                                                     { session: page.session, terminalView: page.terminalView })
+
+                Label {
+                    x: Theme.horizontalPageMargin
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Select text")
+                    color: parent.highlighted ? Theme.highlightColor : Theme.primaryColor
+                }
+            }
+
+            BackgroundItem {
                 onClicked: {
                     var path = page.session.saveScrollback()
                     page.scrollbackMessage = path.length > 0 ? qsTr("Saved to %1").arg(path) : page.session.errorString

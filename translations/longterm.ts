@@ -304,6 +304,18 @@
         <source>App default (%1)</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Attach to tmux</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Opens this tmux session instead of a plain shell, from the next connect. Left as the host has it, it follows the host.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>tmux session</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>ExportKeyDialog</name>
@@ -515,6 +527,10 @@
     <name>HostList</name>
     <message>
         <source>Favorites</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Other</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -1261,6 +1277,10 @@
     </message>
     <message>
         <source>Save scrollback</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select text</source>
         <translation type="unfinished"></translation>
     </message>
 </context>
@@ -2133,6 +2153,17 @@
     </message>
     <message>
         <source>Done</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>TextPage</name>
+    <message>
+        <source>Copy all</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Text</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

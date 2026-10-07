@@ -189,6 +189,7 @@ DISTFILES += qml/longterm.qml \
     qml/pages/SnippetDialog.qml \
     qml/pages/SnippetPickerPage.qml \
     qml/pages/SnippetsPage.qml \
+    qml/pages/TextPage.qml \
     qml/pages/ToolbarKeysPage.qml \
     rpm/longterm.changes \
     rpm/longterm.spec \
