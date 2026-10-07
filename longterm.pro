@@ -13,7 +13,8 @@
 TARGET = longterm
 
 CONFIG += sailfishapp
-DEFINES += APP_VERSION=\\\"$$VERSION\\\"
+QMAKE_SUBSTITUTES += src/version.h.in
+INCLUDEPATH += $$OUT_PWD/src
 QT += network concurrent
 PKGCONFIG += sailfishsecrets zlib
 

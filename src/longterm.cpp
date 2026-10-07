@@ -21,6 +21,7 @@
 #include "sshsession.h"
 #include "terminal.h"
 #include "terminalview.h"
+#include "version.h"
 
 int main(int argc, char *argv[])
 {
