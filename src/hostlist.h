@@ -47,6 +47,7 @@ private:
 
     QPointer<HostStore> m_source;
     QString m_searchText;
+    bool m_headed = false;
     // Source rows in the order shown
     QVector<int> m_rows;
 };

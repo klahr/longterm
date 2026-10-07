@@ -18,15 +18,16 @@ Page {
     }
 
     function showSession(session) {
-        updateAttachedPage()
+        if (!pageStack.nextPage(page))
+            pageStack.pushAttached(Qt.resolvedUrl("SessionPage.qml"))
         pageStack.nextPage(page).showSession(session)
         pageStack.navigateForward()
     }
 
-    // The sessions sit to the right of this page, so swiping forward leads to the first of them
+    // The sessions not disconnected sit to the right of this page, so swiping forward leads to the first of them
     function updateAttachedPage() {
         var attached = pageStack.nextPage(page)
-        if (sessionManager.count === 0) {
+        if (liveSessions.count === 0) {
             if (attached)
                 pageStack.popAttached()
         } else if (attached) {
@@ -41,8 +42,13 @@ Page {
             updateAttachedPage()
     }
 
+    SessionFilter {
+        id: liveSessions
+        source: sessionManager
+    }
+
     Connections {
-        target: sessionManager
+        target: liveSessions
         onCountChanged: {
             if (page.status === PageStatus.Active)
                 page.updateAttachedPage()

@@ -39,7 +39,8 @@ QString HostList::section(int sourceRow) const
     const QModelIndex index = m_source->index(sourceRow);
     if (index.data(HostStore::FavoriteRole).toBool())
         return tr("Favorites");
-    return index.data(HostStore::GroupRole).toString();
+    const QString group = index.data(HostStore::GroupRole).toString();
+    return group.isEmpty() && m_headed ? tr("Other") : group;
 }
 
 void HostList::rebuild()
@@ -47,6 +48,7 @@ void HostList::rebuild()
     const int before = m_rows.size();
     beginResetModel();
     m_rows.clear();
+    m_headed = false;
     const QString search = m_searchText.trimmed();
     for (int row = 0; m_source && row < m_source->rowCount(); ++row) {
         const QModelIndex index = m_source->index(row);
@@ -61,6 +63,8 @@ void HostList::rebuild()
                 continue;
         }
         m_rows.append(row);
+        if (index.data(HostStore::FavoriteRole).toBool() || !index.data(HostStore::GroupRole).toString().isEmpty())
+            m_headed = true;
     }
     std::stable_sort(m_rows.begin(), m_rows.end(), [this](int a, int b) {
         const QModelIndex left = m_source->index(a);
